@@ -1,0 +1,19 @@
+# Project data: stays on this machine
+DWF/
+OUTPUT/
+TEST/
+reference/
+revit/catalog/
+*.rvt
+*.rfa
+*.ifc
+*.dwf
+*.dwfx
+
+# Browser profile of the archive download
+.browser_profile/
+
+# Python
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,20 @@
+{
+  "_comment": "The Tel Aviv engineering archive: where to look and which documents make a project. Document types are the archive's own Hebrew names.",
+  "base_url": "https://handasa.tel-aviv.gov.il",
+  "search_path": "/Pages/searchResultsAnonPageNew.aspx?block={block}_{parcel}",
+  "terms_cookie": "approveTerm",
+  "columns": {
+    "type": "סוג מסמך",
+    "date": "תאריך מסמך",
+    "request": "מס.בקשה",
+    "online_request": "בקשה מקוונת",
+    "permit": "מס. היתר"
+  },
+  "documents": {
+    "architecture": {"types": ["תכנית מתוקנת (אדריכלות)"], "formats": [".dwf"], "required": true},
+    "area": {"types": ["חישוב שטחים"], "formats": [".dwfx"], "required": false},
+    "survey": {"types": ["מפת מדידה להיתר"], "formats": [".dwfx"], "required": false}
+  },
+  "max_tries_per_document": 4,
+  "max_result_pages": 20
+}

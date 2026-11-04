@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dwf2bim</title>
+<style>
+:root { --bg: #f6f7f8; --panel: #fff; --text: #1d2125; --muted: #5e6873; --line: #d9dde1; --accent: #0b63b6; --bad: #b3261e; --warn: #8a5a00; --log: #f0f2f4; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15181b; --panel: #1e2226; --text: #e8eaed; --muted: #a0a8b0; --line: #343a40; --accent: #6db1f2; --bad: #f2867f; --warn: #e3b35a; --log: #14171a; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; margin-top: 16px; }
+.fields { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+label { display: block; font-weight: 600; font-size: 13px; }
+input[type=text] { display: block; margin-top: 4px; width: 130px; padding: 8px 10px; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; }
+button { padding: 9px 16px; font: inherit; font-weight: 600; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { button.primary { color: #10151a; } }
+button:disabled { opacity: .55; cursor: default; }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 400; font-size: 14px; margin-top: 12px; }
+#log { background: var(--log); border-radius: 6px; padding: 10px 12px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 ui-monospace, Consolas, monospace; margin: 0; }
+#error { color: var(--bad); font-weight: 600; }
+.warn { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.n { font-variant-numeric: tabular-nums; }
+code { font: 12.5px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+ol { margin: 0; padding-left: 20px; }
+li { margin-bottom: 6px; }
+img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var(--line); margin-top: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+<h1>dwf2bim</h1>
+<p class="muted">Enter a block and parcel in Tel Aviv. This gets the newest permit documents from the city's engineering archive and prepares a model for Revit.</p>
+
+<section>
+  <form id="form">
+    <div class="fields">
+      <label>Block <input type="text" id="block" inputmode="numeric" autocomplete="off" required></label>
+      <label>Parcel <input type="text" id="parcel" inputmode="numeric" autocomplete="off" required></label>
+      <button class="primary" id="go" type="submit">Get files and build</button>
+    </div>
+    <label class="check"><input type="checkbox" id="local"> Use the files already in the project's folder, and do not open the archive</label>
+  </form>
+  <p class="muted" style="margin:12px 0 0">A browser window opens on the archive. Read its terms of use and approve them there. The documents are not certified copies, and some are protected by copyright.</p>
+</section>
+
+<section id="progress" hidden>
+  <h2 id="state">Working</h2>
+  <p id="error" hidden></p>
+  <pre id="log" role="log" aria-live="polite"></pre>
+</section>
+
+<section id="done" hidden>
+  <h2>Result</h2>
+  <div id="documents"></div>
+  <div id="counts"></div>
+  <p id="warnings" class="warn" hidden></p>
+  <h2 style="margin-top:16px">Build it in Revit</h2>
+  <ol>
+    <li>Open a new project from your template, or a saved copy of a project.</li>
+    <li>Open a 3D view, then Manage &gt; Dynamo.</li>
+    <li>Open <code id="dyn"></code></li>
+    <li>Press Run. If the file already holds a model to replace, first set the switch in the graph to True.</li>
+  </ol>
+  <div class="row">
+    <button type="button" data-open="output">Open the output folder</button>
+    <button type="button" data-open="input">Open the downloaded files</button>
+  </div>
+  <img id="preview" alt="3D preview of the model" hidden>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let since = 0, timer = null;
+
+function esc(text) {
+  const box = document.createElement('div');
+  box.textContent = text == null ? '' : text;
+  return box.innerHTML;
+}
+
+function showResult(result) {
+  const docs = Object.entries(result.documents || {});
+  $('documents').innerHTML = docs.length ? '<table><tr><th>Document</th><th>Archive type</th><th>Date</th><th>File</th></tr>' +
+    docs.map(([role, d]) => `<tr><td>${esc(role)}</td><td dir="rtl" style="text-align:left">${esc(d.type)}</td><td>${esc(d.date)}</td><td><code>${esc(d.file)}</code></td></tr>`).join('') + '</table><br>' : '';
+  $('counts').innerHTML = '<table><tr><th>Modelled</th><th>Count</th></tr>' +
+    Object.entries(result.counts).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="n">${esc(v)}</td></tr>`).join('') + '</table>';
+  const notes = [...(result.warnings || [])];
+  if (result.missing && result.missing.length) notes.unshift('Built without: ' + result.missing.join(', '));
+  $('warnings').hidden = !notes.length;
+  $('warnings').textContent = notes.join(' · ');
+  $('dyn').textContent = result.graph;
+  $('preview').src = '/api/preview?t=' + Date.now();
+  $('preview').hidden = false;
+  $('done').hidden = false;
+}
+
+async function poll() {
+  const s = await (await fetch('/api/status?since=' + since)).json();
+  since = s.total;
+  if (s.lines.length) {
+    $('log').textContent += s.lines.join('\n') + '\n';
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+  if (s.running) { timer = setTimeout(poll, 1000); return; }
+  $('go').disabled = false;
+  $('state').textContent = s.error ? 'Stopped' : 'Finished';
+  if (s.error) { $('error').textContent = s.error; $('error').hidden = false; }
+  if (s.result) showResult(s.result);
+}
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  clearTimeout(timer);
+  since = 0;
+  $('log').textContent = '';
+  $('error').hidden = true;
+  $('done').hidden = true;
+  $('progress').hidden = false;
+  $('state').textContent = 'Working';
+  $('go').disabled = true;
+  const r = await fetch('/api/run', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({block: $('block').value.trim(), parcel: $('parcel').value.trim(), use_local: $('local').checked})});
+  if (!r.ok) {
+    $('error').textContent = (await r.json()).error;
+    $('error').hidden = false;
+    $('state').textContent = 'Stopped';
+    $('go').disabled = false;
+    return;
+  }
+  poll();
+});
+
+document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () =>
+  fetch('/api/open', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({what: b.dataset.open})})));
+</script>
+</body>
+</html>

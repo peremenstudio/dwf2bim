@@ -1,0 +1,55 @@
+{
+  "_comment": "How DWF families and types map to the Revit template (filled from revit/catalog/6133-385 v6.json). See revit/README.md.",
+  "site_line_names": {"plot": "קו מגרש", "building": "קו בניין"},
+  "default_railing_type": "מעקה מרובע + חלקות אופקיות",
+  "default_door_family": "עץ - ציר",
+  "default_window_family": "הזזה דו כנפי",
+
+  "wall_name_rules": [
+    ["^בטון (\\d+)$", "קיר בטון \\1"],
+    ["^בלוק (\\d+)$", "קיר בלוק \\1"]
+  ],
+  "wall_types": {
+    "בטון 40": "קיר בטון40",
+    "קיר 5": "קיר בלוק 5"
+  },
+  "wall_base_by_word": {
+    "בטון": "קיר בטון 20",
+    "בלוק": "קיר בלוק 20",
+    "קיר": "קיר בלוק 20",
+    "DWF": "קיר בטון 20"
+  },
+
+  "floor_name_rules": [
+    ["^בטון (\\d+)$", "רצפת בטון \\1 ס\"מ"]
+  ],
+  "floor_types": {},
+  "floor_base_by_word": {
+    "מרפסת": "רצפה מרפסת גנרית - 40 ס\"מ",
+    "מילוי": "רצפה פנימית גנרית - 40 ס\"מ",
+    "ריצוף": "רצפת מדרך קרקע קווי בניין - 30 ס\"מ",
+    "אדמה": "אדמה 20 ס\"מ",
+    "בטון": "רצפת בטון 20 ס\"מ",
+    "רצפה": "רצפת בטון 20 ס\"מ",
+    "DWF": "רצפת בטון 20 ס\"מ"
+  },
+
+  "railing_types": {},
+
+  "opening_families": {
+    "E_דלת נגרות": {"family": "עץ - ציר", "type_format": "{w}/{h}"},
+    "ע 180ץ - ציר": {"family": "עץ - ציר", "type_format": "{w}/{h}"},
+    "E_דלת לממד": {"family": "דלת לממד", "type_format": "{w}w/{h}h"},
+    "דלת לממד 180": {"family": "דלת לממד", "type_format": "{w}w/{h}h"},
+    "הזזה לכיס1": {"family": "הזזה לכיס", "type_format": "{w}/{h}"},
+
+    "E_הזזה דו כנפי עם תריס": {"family": "הזזה דו כנפי + ארגז תריס", "type_format": "{w}w/{h}h"},
+    "E_הזזה דו כנפי": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
+    "E_ ממד נגרר דו-כנפי": {"family": "חלון ממ\"ד", "type_format": "{w}w/{h}h"},
+    "E_ 2ממד נגרר דו-כנפי": {"family": "חלון ממ\"ד", "type_format": "{w}w/{h}h"},
+    "E_קיפ": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
+    "E_קיפ עם תריס": {"family": "הזזה דו כנפי + ארגז תריס", "type_format": "{w}w/{h}h"},
+    "E_ויטרינה": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
+    "E_ויטרינה עם תריס": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"}
+  }
+}

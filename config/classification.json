@@ -1,0 +1,30 @@
+{
+  "_comment": "Maps Revit family names to model classes. First matching regex wins. Set a class in enabled_classes to include it in the model.",
+  "enabled_classes": ["wall", "floor", "door", "window", "stair", "railing", "mullion", "curtain_panel", "generic"],
+  "type_rules": [
+    {"match": "^אדמה$|^אדמה בלבד", "class": "site"}
+  ],
+  "rules": [
+    {"match": "^Basic Wall$|^Curtain Wall$|^Stacked Wall$", "class": "wall"},
+    {"match": "^Floor$|^Foundation Slab$|^Roof$|^Basic Roof$", "class": "floor"},
+    {"match": "Stair", "class": "stair"},
+    {"match": "^Railing$", "class": "railing"},
+    {"match": "Mullion", "class": "mullion"},
+    {"match": "^System Panel$|Empty Panel", "class": "curtain_panel"},
+
+    {"match": "^E_דלת|^דלת|^Doors?_|^ע 180ץ|^הזזה לכיס|^שער", "class": "door"},
+    {"match": "^E_הזזה|^E_ויטרינה|^E_קיפ|^חלון|^Windows?_|^E_ ?2?ממד נגרר", "class": "window"},
+
+    {"match": "^אבן", "class": "site"},
+    {"match": "^Generic Models|^Wood|^עמוד|^דלפק|^Monolithic Landing|^שיפוע", "class": "generic"},
+
+    {"match": "Lift", "class": "equipment"},
+    {"match": "^E_יחידה חיצונית|^E_דוד שמש|^Solar_Panel|Dumpster|Trash_Can", "class": "equipment"},
+    {"match": "כורסא|Table|Chair|מיטה|^כיסא|^E_כסא|שולחן|ארון|M_Bed|Television|Counter Top|Cook Top|UK_Washer|^E_שולחן", "class": "furniture"},
+    {"match": "אסלה|כיור|מקלחון|Bath|Bidet|דוש|Sink", "class": "plumbing"},
+    {"match": "Tree|EZ_2d_bicycle|תא חנייה", "class": "site"},
+    {"match": "צינור|Pipe|Duct|ADSK_|JOT_|שקע|E-מפסק|E-מ\\.תקרה|Mesh_Opening|УП_3ф", "class": "mep"},
+
+    {"match": "Detail Lines|Text|Dimension|Spot|Filled region|Masking|Tag|Viewport|^Section$|^Level$|Import Symbol|PDF image|Model Lines|Detail Group|^Area$|Fixed Up|חץ צפון|שם חדר|דף פרמטרי|Type_Name|Property|^$|Group", "class": "annotation"}
+  ]
+}
