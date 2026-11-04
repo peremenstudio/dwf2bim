@@ -11,13 +11,13 @@ Builds a native Revit model from the permit documents of a building in Tel Aviv.
 
 Double-click `start.bat`. The first run installs what it needs. A page opens in your browser:
 
-1. Enter the block and parcel, then click **Get files and build**.
+1. Enter the block and parcel, choose where to save, then click **Get files and build**. A folder named `<block>_<parcel>` is created there.
 2. A browser window opens on the archive. Read its terms of use and approve them there. The tool reads nothing from the archive until you do, and the approval lasts 7 days.
 3. Wait a few minutes. The page shows the documents it chose, what it built, and what needs checking.
 4. In Revit, open a new project from your template, open a 3D view, and start Dynamo.
-5. Open `OUTPUT/<block>_<parcel>/Build_<block>_<parcel>.dyn` and press **Run**. Set the graph's switch to True only to replace a model already in the file.
+5. Open `Build_<block>_<parcel>.dyn` from the project folder and press **Run**. Set the graph's switch to True only to replace a model already in the file.
 
-If the download does not work, put the files in `DWF/<block>_<parcel>/` yourself and tick **Use the files already in the project's folder**.
+If the download does not work, put the files in the `<block>_<parcel>` folder yourself and tick **Use the files already in that folder**.
 
 ### Which documents it takes
 
@@ -27,7 +27,7 @@ If the download does not work, put the files in `DWF/<block>_<parcel>/` yourself
 | Area plan | חישוב שטחים | DWFX | No, there are no areas without it |
 | Survey | מפת מדידה להיתר | DWFX | No, there is no site or true position without it |
 
-It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in `DWF/<project>/fetch_manifest.json`. Files replaced by a newer download move to `DWF/<project>/_previous/`. To change the types, edit `config/archive.json`.
+It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in the project folder's `fetch_manifest.json`. Files replaced by a newer download move to its `_previous/` folder. To change the types, edit `config/archive.json`.
 
 ### About the archive
 The archive's documents are photographic copies, not certified documents, and may hold errors or be out of date. Some are protected by copyright, and their use is your responsibility. These terms are the city's, so read them in the archive. Downloaded files stay on your machine and are not part of this repository.
@@ -37,25 +37,28 @@ The archive's documents are photographic copies, not certified documents, and ma
 ```powershell
 $env:PYTHONPATH = "src"
 python -m dwf2bim ui                       # the page
-python -m dwf2bim run 6625 538             # download and build
-python -m dwf2bim run 6625 538 --local     # build from the files already in DWF/6625_538
-python -m dwf2bim fetch 6625 538           # download only
-python -m dwf2bim build DWF\6625_538       # build a folder
-python -m dwf2bim compare-areas OUTPUT\6625_538   # compare Revit's area plans with the DWF
+python -m dwf2bim run 6625 538 --folder D:\Projects           # download and build. Asks for the folder if left out
+python -m dwf2bim run 6625 538 --folder D:\Projects --local   # build from the files already in D:\Projects\6625_538
+python -m dwf2bim fetch 6625 538 --folder D:\Projects         # download only
+python -m dwf2bim compare-areas D:\Projects\6625_538\model    # compare Revit's area plans with the DWF
 ```
 
-## Output
+## The project folder
 
-`OUTPUT/<project>/`
+`<save folder>/<block>_<parcel>/`
 
 | Path | Content |
 |---|---|
-| `Build_<project>.dyn` | The Dynamo graph to run in Revit |
-| `BUILD_REPORT.md` | What was built, what was inferred, what is missing. Read this first |
-| `building.json` | Neutral model, in metres, which Revit builds from |
-| `<file name>.ifc` | The same model as IFC, to check it without Revit |
-| `views/` | Each view of the sheet as PNG and DXF |
-| `qa/` | Plan overlays and 3D previews |
+| The DWF and DWFX files | The downloaded documents |
+| `Build_<block>_<parcel>.dyn` | The Dynamo graph to run in Revit |
+| `fetch_manifest.json` | Which documents were chosen, and why others were not |
+| `model/BUILD_REPORT.md` | What was built, what was inferred, what is missing. Read this first |
+| `model/building.json` | Neutral model, in metres, which Revit builds from |
+| `model/<file name>.ifc` | The same model as IFC, to check it without Revit |
+| `model/views/` | Each view of the sheet as PNG and DXF |
+| `model/qa/` | Plan overlays and 3D previews |
+
+The graph holds the full paths to this folder and to this repository, so it runs only on the machine that built it. Keep both where they are, or build again.
 
 ## Folders
 
@@ -66,7 +69,7 @@ python -m dwf2bim compare-areas OUTPUT\6625_538   # compare Revit's area plans w
 | `config/` | Everything that changes without code. See below | Yes |
 | `docs/` | [The build protocol](docs/BUILD_PROTOCOL.md) | Yes |
 | `tests/` | `python -m unittest discover tests`, with `PYTHONPATH=src` | Yes |
-| `DWF/`, `OUTPUT/`, `TEST/`, `reference/`, `revit/catalog/` | Project files on this machine | No |
+| `TEST/`, `reference/`, `revit/catalog/` | Local checks and references on this machine | No |
 
 ## Configure
 

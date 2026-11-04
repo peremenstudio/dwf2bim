@@ -15,6 +15,8 @@ from .extract import Extractor
 from .names import level_id
 
 ROOT = Path(__file__).resolve().parents[2]
+SETTINGS = ROOT / ".dwf2bim_settings.json"
+MODEL_FOLDER = "model"
 log_listeners = []
 
 
@@ -41,7 +43,18 @@ def classify_folder(folder: Path) -> dict:
     return found
 
 
-def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, area=None, name=None) -> Path:
+def last_save_folder() -> str:
+    try:
+        return json.loads(SETTINGS.read_text(encoding="utf8")).get("save_folder", "")
+    except (OSError, ValueError):
+        return ""
+
+
+def remember_save_folder(folder) -> None:
+    SETTINGS.write_text(json.dumps({"save_folder": str(folder)}, ensure_ascii=False), encoding="utf8")
+
+
+def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, area=None, name=None, graph_folder: Path = None) -> Path:
     out = out_root / (name or source.stem)
     (out / "views").mkdir(parents=True, exist_ok=True)
     (out / "qa").mkdir(exist_ok=True)
@@ -109,7 +122,8 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     qa.render_3d(building, out / "qa" / "preview_3d.png")
     qa.render_3d(building, out / "qa" / "preview_3d_back.png", azimuth=125.0)
     qa.write_report(out / "BUILD_REPORT.md", source.name, building, checks, counts, manifest, validation, qa.level_summary(building, ex))
-    dynamo.write_graph(ROOT, out.name, out)
+    project = graph_folder.name if graph_folder else out.name
+    _log(f"Dynamo graph: {dynamo.write_graph(ROOT, project, out, graph_folder or out)}")
     _log(f"Done: {out}")
     return out
 
@@ -134,20 +148,28 @@ def compare_areas(folder: Path) -> int:
     return 0
 
 
-def build_folder(project: Path, out_root: Path, skip_dxf: bool = False) -> Path:
-    """Build a project folder: the DWF is the building, DWFX sheets are the survey and the area plan."""
+def build_folder(project: Path, out_root: Path = None, skip_dxf: bool = False) -> Path:
+    """Build a project folder: the DWF is the building, DWFX sheets are the survey and the area plan.
+
+    The Dynamo graph goes in the project folder. So does the model, in a folder of its own, unless out_root says otherwise.
+    """
     found = classify_folder(project)
     if found["building"] is None:
         raise package.UnsupportedInput("the folder has no DWF of the building")
     for other in found["other"]:
         _log(f"Not recognised as a survey or an area plan, skipped: {other}")
-    return build(found["building"], out_root, skip_dxf, found["survey"], found["area"], project.name)
+    if out_root is None:
+        return build(found["building"], project, skip_dxf, found["survey"], found["area"], MODEL_FOLDER, project)
+    return build(found["building"], out_root, skip_dxf, found["survey"], found["area"], project.name, project)
 
 
-def run_project(block, parcel, use_local: bool = False, log=print) -> dict:
-    """From a block and parcel to a model and a Dynamo graph. Returns what the person needs to see."""
+def run_project(block, parcel, save_folder, use_local: bool = False, log=print) -> dict:
+    """From a block and parcel to a model and a Dynamo graph, all in <save_folder>/<block>_<parcel>."""
     name = fetch.project_name(block, parcel)
-    folder = ROOT / "DWF" / name
+    save_folder = Path(save_folder)
+    if not save_folder.is_absolute():
+        raise fetch.FetchError(f"Choose a full folder path, such as D:\\Projects. Got '{save_folder}'")
+    folder = save_folder / name
     manifest = {}
     if use_local:
         if not folder.exists():
@@ -155,7 +177,8 @@ def run_project(block, parcel, use_local: bool = False, log=print) -> dict:
         log(f"Using the files in {folder}")
     else:
         manifest = fetch.fetch(block, parcel, folder, log=log)
-    out = build_folder(folder, ROOT / "OUTPUT")
+    remember_save_folder(save_folder)
+    out = build_folder(folder)
     building = json.loads((out / "building.json").read_text(encoding="utf8"))
     counts = {}
     for record in building["elements"] + building["openings"]:
@@ -168,8 +191,18 @@ def run_project(block, parcel, use_local: bool = False, log=print) -> dict:
         warnings.append("Apartment numbers are inferred, as the area plan does not list them. Check BUILD_REPORT.md.")
     return {
         "project": name, "documents": manifest.get("documents", {}), "missing": manifest.get("missing", []), "warnings": warnings,
-        "counts": counts, "graph": str(out / f"Build_{name}.dyn"), "report": str(out / "BUILD_REPORT.md"),
+        "counts": counts, "folder": str(folder), "model": str(out), "graph": str(folder / f"Build_{name}.dyn"), "report": str(out / "BUILD_REPORT.md"),
     }
+
+
+def _ask_save_folder(given) -> Path:
+    if given:
+        return Path(given)
+    last = last_save_folder()
+    answer = input(f"Where should the project folder be created?{f' [{last}]' if last else ''} ").strip().strip('"') or last
+    if not answer:
+        raise fetch.FetchError("No folder was given.")
+    return Path(answer)
 
 
 def main(argv=None):
@@ -184,11 +217,12 @@ def main(argv=None):
     f = sub.add_parser("fetch", help="Download a project's newest documents from the Tel Aviv engineering archive")
     f.add_argument("block")
     f.add_argument("parcel")
-    f.add_argument("--dest", help="Folder for the files. Default: DWF/<block>_<parcel>")
+    f.add_argument("--folder", help="Where to create the <block>_<parcel> folder. Asked if left out")
     r = sub.add_parser("run", help="Download a project's documents and build it")
     r.add_argument("block")
     r.add_argument("parcel")
-    r.add_argument("--local", action="store_true", help="Use the files already in DWF/<block>_<parcel>")
+    r.add_argument("--folder", help="Where the <block>_<parcel> folder is, or is to be created. Asked if left out")
+    r.add_argument("--local", action="store_true", help="Use the files already in the <block>_<parcel> folder")
     u = sub.add_parser("ui", help="Open the local page")
     u.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
@@ -200,9 +234,10 @@ def main(argv=None):
     if args.command in ("fetch", "run"):
         try:
             if args.command == "fetch":
-                print(json.dumps(fetch.fetch(args.block, args.parcel, args.dest, log=_log), ensure_ascii=False, indent=1))
+                folder = _ask_save_folder(args.folder) / fetch.project_name(args.block, args.parcel)
+                print(json.dumps(fetch.fetch(args.block, args.parcel, folder, log=_log), ensure_ascii=False, indent=1))
             else:
-                print(json.dumps(run_project(args.block, args.parcel, args.local, log=_log), ensure_ascii=False, indent=1))
+                print(json.dumps(run_project(args.block, args.parcel, _ask_save_folder(args.folder), args.local, log=_log), ensure_ascii=False, indent=1))
         except (fetch.FetchError, package.UnsupportedInput) as e:
             print(e, file=sys.stderr)
             return 1

@@ -22,6 +22,8 @@ button { padding: 9px 16px; font: inherit; font-weight: 600; border-radius: 6px;
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 @media (prefers-color-scheme: dark) { button.primary { color: #10151a; } }
 button:disabled { opacity: .55; cursor: default; }
+.pick { display: flex; gap: 8px; margin-top: 4px; }
+.pick input { flex: 1; width: auto; min-width: 0; margin-top: 0; font-weight: 400; }
 .check { display: flex; gap: 8px; align-items: center; font-weight: 400; font-size: 14px; margin-top: 12px; }
 #log { background: var(--log); border-radius: 6px; padding: 10px 12px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 ui-monospace, Consolas, monospace; margin: 0; }
 #error { color: var(--bad); font-weight: 600; }
@@ -47,9 +49,16 @@ img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var
     <div class="fields">
       <label>Block <input type="text" id="block" inputmode="numeric" autocomplete="off" required></label>
       <label>Parcel <input type="text" id="parcel" inputmode="numeric" autocomplete="off" required></label>
-      <button class="primary" id="go" type="submit">Get files and build</button>
     </div>
-    <label class="check"><input type="checkbox" id="local"> Use the files already in the project's folder, and do not open the archive</label>
+    <label style="margin-top:14px">Save to
+      <span class="pick">
+        <input type="text" id="folder" autocomplete="off" placeholder="D:\Projects" required>
+        <button type="button" id="browse">Browse</button>
+      </span>
+    </label>
+    <p class="muted" id="where" style="margin:6px 0 0">A folder named block_parcel is created here. It holds the files and the Dynamo graph to run.</p>
+    <div class="row"><button class="primary" id="go" type="submit">Get files and build</button></div>
+    <label class="check"><input type="checkbox" id="local"> Use the files already in that folder, and do not open the archive</label>
   </form>
   <p class="muted" style="margin:12px 0 0">A browser window opens on the archive. Read its terms of use and approve them there. The documents are not certified copies, and some are protected by copyright.</p>
 </section>
@@ -72,10 +81,7 @@ img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var
     <li>Open <code id="dyn"></code></li>
     <li>Press Run. If the file already holds a model to replace, first set the switch in the graph to True.</li>
   </ol>
-  <div class="row">
-    <button type="button" data-open="output">Open the output folder</button>
-    <button type="button" data-open="input">Open the downloaded files</button>
-  </div>
+  <div class="row"><button type="button" id="openFolder">Open the project folder</button></div>
   <img id="preview" alt="3D preview of the model" hidden>
 </section>
 </main>
@@ -88,6 +94,14 @@ function esc(text) {
   box.textContent = text == null ? '' : text;
   return box.innerHTML;
 }
+
+function showWhere() {
+  const block = $('block').value.trim(), parcel = $('parcel').value.trim(), folder = $('folder').value.trim().replace(/[\\/]+$/, '');
+  $('where').textContent = block && parcel && folder ? `The files and the Dynamo graph go in ${folder}\\${block}_${parcel}`
+    : 'A folder named block_parcel is created here. It holds the files and the Dynamo graph to run.';
+}
+
+const post = (path, body) => fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
 function showResult(result) {
   const docs = Object.entries(result.documents || {});
@@ -129,8 +143,7 @@ $('form').addEventListener('submit', async e => {
   $('progress').hidden = false;
   $('state').textContent = 'Working';
   $('go').disabled = true;
-  const r = await fetch('/api/run', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({block: $('block').value.trim(), parcel: $('parcel').value.trim(), use_local: $('local').checked})});
+  const r = await post('/api/run', {block: $('block').value.trim(), parcel: $('parcel').value.trim(), save_folder: $('folder').value.trim(), use_local: $('local').checked});
   if (!r.ok) {
     $('error').textContent = (await r.json()).error;
     $('error').hidden = false;
@@ -141,8 +154,15 @@ $('form').addEventListener('submit', async e => {
   poll();
 });
 
-document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () =>
-  fetch('/api/open', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({what: b.dataset.open})})));
+$('openFolder').addEventListener('click', () => post('/api/open', {}));
+$('browse').addEventListener('click', async () => {
+  $('browse').disabled = true;
+  const chosen = (await (await post('/api/browse', {start: $('folder').value.trim()})).json()).folder;
+  $('browse').disabled = false;
+  if (chosen) { $('folder').value = chosen; showWhere(); }
+});
+['block', 'parcel', 'folder'].forEach(id => $(id).addEventListener('input', showWhere));
+fetch('/api/settings').then(r => r.json()).then(s => { if (s.save_folder && !$('folder').value) { $('folder').value = s.save_folder; showWhere(); } });
 </script>
 </body>
 </html>

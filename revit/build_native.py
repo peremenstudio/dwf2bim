@@ -53,7 +53,8 @@ def clean_path(path, min_edge=MIN_EDGE_M):
 
 
 def find_building(root, name=None):
-    pattern = os.path.join(root, "OUTPUT", name or "*", "building.json")
+    """name is a project under OUTPUT, or the full path of the folder holding building.json."""
+    pattern = os.path.join(root, "OUTPUT", glob.escape(name) if name else "*", "building.json")
     found = sorted(glob.glob(pattern), key=os.path.getmtime)
     if not found:
         raise IOError("No building.json at " + pattern + ". Run: python -m dwf2bim build")

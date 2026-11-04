@@ -3,7 +3,7 @@
 Both run inside Revit 2026 from a Dynamo **Python Script** node.
 
 ## Build the model
-Every build writes `OUTPUT/<project>/Build_<project>.dyn`. In Revit:
+Every build writes `Build_<project>.dyn` in the project folder. In Revit:
 
 1. Open a **new project from your template**, or a **saved copy** of an existing project, and open a 3D view.
 2. Manage > Dynamo > Open, and choose that file.
@@ -25,7 +25,7 @@ The script stops if the file already has walls it did not create. In a Python Sc
 |---|---|
 | `CLEAR_EXISTING = True` | **Deletes the file's whole model** (walls, floors, doors, windows, stairs, railings, furniture and so on), including what an earlier run built, then builds. Types, levels and views stay. Use only on a saved copy |
 | `ALLOW_EXISTING = True` | Builds next to the existing model |
-| `BUILDING = "<folder name>"` | Chooses a project when `OUTPUT/` has several |
+| `BUILDING = r"<folder>"` | The full path of the folder holding `building.json`, or a project name under `OUTPUT/` |
 
 Running it again skips elements that already exist, identified by `DWF:<id>` in Comments.
 

@@ -195,7 +195,7 @@ def main(root, scheme_name="", snap_m=0.0, keep_previous=False, building_name=No
 
 
 def build(doc, root, scheme_name, snap_m, keep_previous, building_name):
-    found = sorted(glob.glob(os.path.join(root, "OUTPUT", building_name or "*", "building.json")), key=os.path.getmtime)
+    found = sorted(glob.glob(os.path.join(root, "OUTPUT", glob.escape(building_name) if building_name else "*", "building.json")), key=os.path.getmtime)
     if not found:
         return ["No building.json in OUTPUT"]
     with open(found[-1], encoding="utf8") as fh:

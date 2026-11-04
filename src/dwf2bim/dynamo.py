@@ -8,7 +8,7 @@ from pathlib import Path
 PY_TEMPLATE = """# Written by dwf2bim for project {project}. Build it again to refresh this file.
 import os
 ROOT = r"{root}"
-BUILDING = "{project}"
+BUILDING = r"{model}"
 CLEAR_EXISTING = bool(IN[0])
 exec(open(os.path.join(ROOT, "revit", "build_native.py"), encoding="utf8").read(), globals())
 """
@@ -26,7 +26,7 @@ def _view(node_id: str, name: str, x: int, y: int) -> dict:
     return {"Id": node_id, "Name": name, "IsSetAsInput": False, "IsSetAsOutput": False, "Excluded": False, "ShowGeometry": True, "X": x, "Y": y}
 
 
-def graph(root: Path, project: str) -> dict:
+def graph(root: Path, project: str, model: Path) -> dict:
     """A switch for deleting the file's model, the build, and a view of its result. Runs only when Run is pressed."""
     switch, script, watch = _id(), _id(), _id()
     switch_out = _port("", "Boolean")
@@ -35,7 +35,7 @@ def graph(root: Path, project: str) -> dict:
     nodes = [
         {"ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels", "NodeType": "BooleanInputNode", "InputValue": False, "Id": switch,
          "Inputs": [], "Outputs": [switch_out], "Replication": "Disabled", "Description": "Enables selection between True and False"},
-        {"ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels", "Code": PY_TEMPLATE.format(root=str(root), project=project),
+        {"ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels", "Code": PY_TEMPLATE.format(root=str(root), project=project, model=str(model)),
          "Engine": "CPython3", "EngineName": "CPython3", "VariableInputPorts": True, "Id": script, "NodeType": "PythonScriptNode",
          "Inputs": [script_in], "Outputs": [script_out], "Replication": "Disabled", "Description": "Runs an embedded Python script."},
         {"ConcreteType": "CoreNodeModels.Watch, CoreNodeModels", "WatchWidth": 600.0, "WatchHeight": 500.0, "Id": watch, "NodeType": "ExtensionNode",
@@ -65,7 +65,8 @@ def graph(root: Path, project: str) -> dict:
     }
 
 
-def write_graph(root: Path, project: str, out_folder: Path) -> Path:
-    path = Path(out_folder) / f"Build_{project}.dyn"
-    path.write_text(json.dumps(graph(Path(root), project), ensure_ascii=False, indent=1), encoding="utf8")
+def write_graph(root: Path, project: str, model: Path, folder: Path) -> Path:
+    """The graph goes in folder, and builds from the building.json in model."""
+    path = Path(folder) / f"Build_{project}.dyn"
+    path.write_text(json.dumps(graph(Path(root), project, Path(model).resolve()), ensure_ascii=False, indent=1), encoding="utf8")
     return path

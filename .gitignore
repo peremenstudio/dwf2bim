@@ -10,8 +10,9 @@ revit/catalog/
 *.dwf
 *.dwfx
 
-# Browser profile of the archive download
+# Local to this machine: browser profile of the archive download, last save folder
 .browser_profile/
+.dwf2bim_settings.json
 
 # Python
 __pycache__/

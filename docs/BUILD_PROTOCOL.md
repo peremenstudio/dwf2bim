@@ -17,7 +17,7 @@ A Revit-exported DWF is not just a drawing. It holds three layers, and the proto
 ## Stages
 
 ### 0. Get the documents
-From a block and parcel, `fetch` opens the archive in a visible browser, because the person using the tool must approve its terms there. It reads nothing until the terms' cookie exists. It lists every page of results, and for each document in `config/archive.json` takes the newest in a format the build can read, trying older ones when the newest is another format. The format is read from the file's content.
+The person says where to save, and the project folder `<block>_<parcel>` is created there. The documents, the model (in `model/`) and the Dynamo graph all go in it. From a block and parcel, `fetch` opens the archive in a visible browser, because the person using the tool must approve its terms there. It reads nothing until the terms' cookie exists. It lists every page of results, and for each document in `config/archive.json` takes the newest in a format the build can read, trying older ones when the newest is another format. The format is read from the file's content.
 
 **Gate:** the architecture document exists, or the run stops. A missing area plan or survey is reported, and the model is built without it. Documents from different online requests are reported, since they may describe different designs. The choices go to `fetch_manifest.json` in the project folder.
 

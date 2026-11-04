@@ -228,13 +228,13 @@ def _download_role(context, role, rows, dest, known, log):
     return None, skipped
 
 
-def fetch(block, parcel, dest: Path = None, log=print) -> dict:
-    """Download the project's documents to DWF/<block>_<parcel>, and return what was chosen and what was not."""
+def fetch(block, parcel, dest: Path, log=print) -> dict:
+    """Download the project's documents to dest, and return what was chosen and what was not."""
     from playwright.sync_api import Error as BrowserError
     from playwright.sync_api import sync_playwright
 
     name = project_name(block, parcel)
-    dest = Path(dest) if dest else ROOT / "DWF" / name
+    dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     known = {d["id"]: d for d in _load_manifest(dest).get("documents", {}).values() if d}
     url = _CFG["base_url"] + _CFG["search_path"].format(block=str(block).strip(), parcel=str(parcel).strip())

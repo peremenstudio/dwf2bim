@@ -1,8 +1,12 @@
 import base64
+import importlib.util
 import json
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -78,22 +82,23 @@ class KeepingFiles(unittest.TestCase):
 class DynamoGraph(unittest.TestCase):
     def test_graph_builds_the_named_project_and_only_on_run(self):
         with tempfile.TemporaryDirectory() as folder:
-            path = dynamo.write_graph(Path(r"C:\some folder\dwf2bim"), "6625_538", Path(folder))
+            model = Path(folder) / "model"
+            path = dynamo.write_graph(Path(r"C:\some folder\dwf2bim"), "6625_538", model, Path(folder))
             graph = json.loads(path.read_text(encoding="utf8"))
-        self.assertEqual(path.name, "Build_6625_538.dyn")
+        self.assertEqual(path, Path(folder) / "Build_6625_538.dyn")
         self.assertEqual(graph["View"]["Dynamo"]["RunType"], "Manual")
         code = next(n["Code"] for n in graph["Nodes"] if n["NodeType"] == "PythonScriptNode")
         self.assertIn(r'ROOT = r"C:\some folder\dwf2bim"', code)
-        self.assertIn('BUILDING = "6625_538"', code)
+        self.assertIn(f'BUILDING = r"{model.resolve()}"', code)
         compile(code, "node", "exec")
 
     def test_deleting_the_file_model_is_off_by_default(self):
-        graph = dynamo.graph(Path("C:/x"), "1_2")
+        graph = dynamo.graph(Path("C:/x"), "1_2", Path("C:/y/model"))
         switch = next(n for n in graph["Nodes"] if n["NodeType"] == "BooleanInputNode")
         self.assertIs(switch["InputValue"], False)
 
     def test_every_connector_joins_ports_of_the_graph(self):
-        graph = dynamo.graph(Path("C:/x"), "1_2")
+        graph = dynamo.graph(Path("C:/x"), "1_2", Path("C:/y/model"))
         outputs = {p["Id"] for n in graph["Nodes"] for p in n["Outputs"]}
         inputs = {p["Id"] for n in graph["Nodes"] for p in n["Inputs"]}
         self.assertEqual(len(graph["Connectors"]), 2)
@@ -101,6 +106,76 @@ class DynamoGraph(unittest.TestCase):
             self.assertIn(c["Start"], outputs)
             self.assertIn(c["End"], inputs)
         self.assertEqual({v["Id"] for v in graph["View"]["NodeViews"]}, {n["Id"] for n in graph["Nodes"]})
+
+
+class RevitScriptsFindTheModel(unittest.TestCase):
+    def _find_building(self):
+        spec = importlib.util.spec_from_file_location("build_native", Path(__file__).resolve().parents[1] / "revit" / "build_native.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.find_building
+
+    def test_building_may_be_a_full_path_even_with_brackets_in_it(self):
+        find_building = self._find_building()
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "projects [2026]" / "6625_538" / "model"
+            model.mkdir(parents=True)
+            (model / "building.json").write_text("{}")
+            self.assertEqual(Path(find_building(r"C:\elsewhere", str(model))), model / "building.json")
+
+    def test_building_may_still_be_a_project_under_output(self):
+        find_building = self._find_building()
+        with tempfile.TemporaryDirectory() as folder:
+            model = Path(folder) / "OUTPUT" / "1_2"
+            model.mkdir(parents=True)
+            (model / "building.json").write_text("{}")
+            self.assertEqual(Path(find_building(folder, "1_2")), model / "building.json")
+
+
+class ProjectFolder(unittest.TestCase):
+    def test_relative_save_folder_is_refused_before_anything_runs(self):
+        from dwf2bim import cli
+        with self.assertRaises(fetch.FetchError):
+            cli.run_project("1", "2", "relative\\folder", use_local=True)
+
+    def test_local_run_needs_the_folder_to_exist(self):
+        from dwf2bim import cli
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaises(fetch.FetchError):
+                cli.run_project("1", "2", folder, use_local=True)
+
+
+class LocalPageIsLocal(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from dwf2bim import ui
+        cls.server = ui.ThreadingHTTPServer(("127.0.0.1", 0), ui.Handler)
+        cls.port = cls.server.server_address[1]
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def _post(self, headers, body=b'{"block":"x","parcel":"y"}'):
+        request = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/run", data=body, headers=headers, method="POST")
+        try:
+            return urllib.request.urlopen(request).status
+        except urllib.error.HTTPError as ex:
+            return ex.code
+
+    def test_another_site_cannot_post(self):
+        self.assertEqual(self._post({"Content-Type": "application/json", "Origin": "https://evil.example"}), 403)
+
+    def test_a_form_post_is_refused(self):
+        self.assertEqual(self._post({"Content-Type": "text/plain"}), 403)
+
+    def test_another_host_name_is_refused(self):
+        self.assertEqual(self._post({"Content-Type": "application/json", "Host": "evil.example"}), 403)
+
+    def test_the_page_itself_gets_through_to_validation(self):
+        self.assertEqual(self._post({"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{self.port}"}), 400)
 
 
 if __name__ == "__main__":
