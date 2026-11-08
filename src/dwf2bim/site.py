@@ -116,6 +116,14 @@ def survey_building_line(sheet, plot_ring) -> list:
     return _chain_edges(edges, True) if len(edges) >= 3 else []
 
 
+def closed_lines_only(lines) -> tuple:
+    """A building line encloses an area. Open pieces beside a closed line are left out, by id. With no closed line, all stay."""
+    closed = [b for b in lines if b["closed"]]
+    if not closed:
+        return list(lines), []
+    return closed, [b["id"] for b in lines if not b["closed"]]
+
+
 def drop_collinear(ring, limit=COLLINEAR_SIN):
     """A corner lying on a straight edge says nothing about the plot's shape."""
     out = list(ring)
@@ -371,18 +379,84 @@ def vote_translations(a_pts, b_pts, top=25, bin_m=0.02):
     return [(i * bin_m, j * bin_m, n) for (i, j), n in votes.most_common(top)]
 
 
+def _match_shelters(apartments, near) -> dict:
+    """Give as many apartments as possible a shelter of their own. near lists each apartment's shelters, best first."""
+    taken = {}
+
+    def give(apartment, tried):
+        for shelter in near[apartment]:
+            if shelter in tried:
+                continue
+            tried.add(shelter)
+            if shelter not in taken or give(taken[shelter], tried):
+                taken[shelter] = apartment
+                return True
+        return False
+
+    for apartment in sorted(apartments, key=lambda a: len(near[a])):
+        give(apartment, set())
+    return taken
+
+
+def _infer_apartments(floor) -> tuple:
+    """Who owns which cell, when the area table does not say. Returns the owners and the parts left with none.
+
+    A large residential cell is an apartment. It usually has one shelter, so shelters are shared out
+    one each first, and only then does a spare one go to the apartment beside it. A shelter's walls go
+    where the shelter goes. Every balcony belongs to an apartment, the nearest however far. Nothing
+    passes on through another part, or a shelter would follow its walls into the next apartment.
+    """
+    reach = _CFG["apartment_reach_m"]
+    cells = {c["n"]: c for c in floor["cells"]}
+    shapes = {n: make_valid(Polygon(c["ring"])) for n, c in cells.items()}
+    residential = set(_CFG["apartment_codes"])
+    heads = [n for n, c in cells.items() if c["c"] in residential and c["t"] >= _CFG["apartment_min_m2"]]
+
+    def of(codes):
+        return [n for n, c in cells.items() if c["c"] in codes and n not in heads]
+
+    def closest(n, targets, limit=None):
+        """The target nearest to this cell, and of equals the one it borders most. None when beyond the limit."""
+        grown = shapes[n].buffer(reach, join_style=2, mitre_limit=1.5)
+        found = [(round(shapes[n].distance(shapes[t]), 1), -grown.intersection(shapes[t]).area, t) for t in targets]
+        found = [f for f in found if limit is None or f[0] <= limit]
+        return min(found)[2] if found else None
+
+    owner = {n: n for n in heads}
+    left = []
+    if not heads:
+        return owner, left
+
+    def join(n, target):
+        if target is None:
+            left.append(n)
+        else:
+            owner[n] = owner[target]
+
+    shelters = of(_CFG["apartment_shelter_codes"])
+    near = {a: [t[1] for t in sorted((round(shapes[a].distance(shapes[n]), 1), n) for n in shelters if shapes[a].distance(shapes[n]) <= reach)] for a in heads}
+    matched = _match_shelters(heads, near)
+    for n in shelters:
+        join(n, matched.get(n) or closest(n, heads, reach))
+    placed = [n for n in shelters if n in owner]
+    for n in of(_CFG["apartment_shelter_wall_codes"]):
+        join(n, closest(n, placed, reach) or closest(n, heads, reach))
+    for n in of(_CFG["balcony_codes"]):
+        join(n, closest(n, heads))
+    for n in of(set(_CFG["apartment_part_codes"]) | residential):
+        join(n, closest(n, heads, reach))
+    return owner, left
+
+
 def assign_apartments(building):
     """Number the apartments, through the building from the bottom up.
 
-    The area plan's apartment column decides when it is filled in. When it is empty the
-    apartments are inferred: each residential cell is one, and a shelter, wall thickness,
-    service niche or balcony joins the one it overlaps most, directly or through another part
-    of it. A floor with no residential cell has no apartments, whatever its table says, since
-    a basement's shelter walls may be listed under one. Every other cell gets 0.
+    The area plan's apartment column decides when it is filled in, and otherwise they are inferred.
+    A floor with no residential cell has no apartments, whatever its table says, since a basement's
+    shelter walls may be listed under one. Every other cell gets 0.
     """
     apartment_codes = set(_CFG["apartment_codes"])
-    part_codes = set(_CFG["apartment_part_codes"])
-    reach = _CFG["apartment_reach_m"]
+    shelter_codes = set(_CFG["apartment_shelter_codes"])
     from_table = any(c.get("u") for floor in building.get("areas", []) for c in floor["cells"])
     unassigned = []
     for floor in building.get("areas", []):
@@ -390,24 +464,8 @@ def assign_apartments(building):
             residential = any(c["c"] in apartment_codes for c in floor["cells"])
             floor["apartment_of_cell"] = {c["n"]: c["u"] for c in floor["cells"] if c.get("u") and residential}
             continue
-        shapes = {c["n"]: make_valid(Polygon(c["ring"])) for c in floor["cells"]}
-        owner = {c["n"]: c["n"] for c in floor["cells"] if c["c"] in apartment_codes}
-        parts = [c["n"] for c in floor["cells"] if c["c"] in part_codes]
-        for _ in range(4):
-            changed = False
-            for n in parts:
-                if n in owner:
-                    continue
-                grown = shapes[n].buffer(reach, join_style=2, mitre_limit=1.5)
-                touching = [(grown.intersection(shapes[m]).area, m) for m in owner if grown.intersects(shapes[m])]
-                touching = [t for t in touching if t[0] > 0.01]
-                if touching:
-                    owner[n] = owner[max(touching)[1]]
-                    changed = True
-            if not changed:
-                break
-        floor["apartment_of_cell"] = owner
-        unassigned += [{"floors": floor["floors"], "cell": n} for n in parts if n not in owner]
+        floor["apartment_of_cell"], left = _infer_apartments(floor)
+        unassigned += [{"floors": floor["floors"], "cell": n} for n in left]
 
     def number_key(label):
         digits = re.sub(r"\D", "", str(label))
@@ -426,7 +484,8 @@ def assign_apartments(building):
             running += 1
             ids[head] = running
             cells = [c for c in floor["cells"] if owner.get(c["n"]) == head]
-            table.append({"unit": running, "level": lid, "cells": [c["n"] for c in cells], "area_m2": round(sum(c["t"] for c in cells), 2)})
+            table.append({"unit": running, "level": lid, "cells": [c["n"] for c in cells], "area_m2": round(sum(c["t"] for c in cells), 2),
+                          "shelters": sum(c["c"] in shelter_codes for c in cells)})
         floor.setdefault("unit_ids", {})[lid] = {n: ids[o] for n, o in owner.items()}
     building["apartments"] = {"source": "area_table" if from_table else "inferred", "units": table, "parts_with_no_apartment": unassigned}
 
@@ -585,7 +644,8 @@ class SiteBuilder:
 
     def place(self, survey_sheet):
         plot, building_lines = self.property_lines()
-        site = {"plot": plot, "building_lines": building_lines, "placement": None, "datum_elevation": self.b.get("datum_elevation")}
+        kept, left_out = closed_lines_only(building_lines)
+        site = {"plot": plot, "building_lines": kept, "building_lines_left_out": left_out, "placement": None, "datum_elevation": self.b.get("datum_elevation")}
         self.b["site"] = site
         if plot is None:
             self.b["issues"].append("No plot line on the Revit sheet: the model cannot be placed from the survey.")
@@ -630,9 +690,8 @@ class SiteBuilder:
             area = round(Polygon(drawn).area, 2)
             closed_sheet = next((b for b in sheet_lines if b["closed"]), None)
             site["survey_building_line_itm"] = [[round(a, 3), round(b, 3)] for a, b in drawn]
-            site["building_lines"] = [{"id": "survey", "closed": True, "points": [to_model(q) for q in drawn], "property_area": area, "source": "survey"}] + [
-                dict(b, source="revit_sheet") for b in sheet_lines if not b["closed"]
-            ]
+            site["building_lines"] = [{"id": "survey", "closed": True, "points": [to_model(q) for q in drawn], "property_area": area, "source": "survey"}]
+            site["building_lines_left_out"] = [b["id"] for b in sheet_lines]
             if closed_sheet is not None:
                 site["building_line_area_on_revit_sheet"] = closed_sheet["property_area"]
                 site["building_line_vs_revit_sheet_m"] = round(max(Polygon(closed_sheet["points"]).exterior.distance(Point(to_model(q))) for q in drawn), 3)

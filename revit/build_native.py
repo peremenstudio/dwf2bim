@@ -61,6 +61,18 @@ def find_building(root, name=None):
     return found[-1]
 
 
+def wall_moved(expected, actual, tolerance=0.3):
+    """Whether a wall's two ends, in metres, are not where they were asked to be, in either direction."""
+    a0, a1 = actual
+    e0, e1 = expected
+    gap = min(max(_dist(a0, e0), _dist(a1, e1)), max(_dist(a0, e1), _dist(a1, e0)))
+    return gap > tolerance
+
+
+def _dist(p, q):
+    return ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5
+
+
 def target_type_name(source, explicit, rules):
     """The template's name for a DWF type: explicit map first, then regex rules, else unchanged."""
     name = clean_name(source)
@@ -145,6 +157,10 @@ def summarize(log):
         lines.append("Levels not deleted, open another view and delete by hand: {} (active view: {})".format(", ".join(x["level"] for x in log["levels_not_deleted"]), log.get("active_view")))
     if log.get("elements_removed_by_revit"):
         lines.append("Removed by Revit when resolving its errors: {}".format(len(log["elements_removed_by_revit"])))
+    if log.get("walls_moved_by_revit"):
+        lines.append("Walls not where the DWF put them: {}".format(len(log["walls_moved_by_revit"])))
+    if log.get("walls_not_from_the_dwf"):
+        lines.append("Walls that did not come from the DWF: {}".format(len(log["walls_not_from_the_dwf"])))
     if isinstance(log.get("placement"), dict):
         lines.append("Placement: worst plot corner {} m".format(log["placement"].get("worst_corner_m")))
     if log.get("revit_messages"):
@@ -402,6 +418,25 @@ class Builder:
         self.log["active_view"] = name_of(self.doc.ActiveView) if stayed else None
         self.log["levels_deleted"] = deleted
         self.log["levels_not_deleted"] = stayed
+
+    def check_walls(self):
+        """Walls that are not where the DWF put them, or did not come from it, go in the log with their ends."""
+        def ends(wall):
+            curve = wall.Location.Curve
+            return [[round(p.X * FT, 2), round(p.Y * FT, 2)] for p in (curve.GetEndPoint(0), curve.GetEndPoint(1))]
+
+        moved, foreign = [], []
+        records = {r["id"]: r for r in self.b["elements"] if r["class"] == "wall" and r["geometry"].get("p0")}
+        for wall in FilteredElementCollector(self.doc).OfCategory(BuiltInCategory.OST_Walls).WhereElementIsNotElementType():
+            comment = wall.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS).AsString() or ""
+            if not comment.startswith(STAMP):
+                foreign.append({"element_id": wall.Id.ToString(), "name": name_of(wall), "ends_m": ends(wall)})
+                continue
+            record = records.get(comment[len(STAMP):].split()[0] if comment[len(STAMP):] else None)
+            if record is not None and wall_moved((record["geometry"]["p0"], record["geometry"]["p1"]), ends(wall)):
+                moved.append({"id": record["id"], "element_id": wall.Id.ToString(), "ends_m": ends(wall), "expected_m": [record["geometry"]["p0"], record["geometry"]["p1"]]})
+        self.log["walls_moved_by_revit"] = moved
+        self.log["walls_not_from_the_dwf"] = foreign
 
     def _level_for(self, rec):
         level = self.levels.get(rec.get("level"))
@@ -941,6 +976,10 @@ class Builder:
             self.process(cls, records, self.make_mass_floor)
         lost = [i for i, element_id in self.created.items() if self.doc.GetElement(element_id) is None]
         self.log["elements_removed_by_revit"] = lost
+        try:
+            self.check_walls()
+        except Exception as ex:
+            self.log["errors"].append("wall check: {}".format(ex))
         try:
             self._transact("DWF site lines", self.make_site_lines)
         except Exception as ex:

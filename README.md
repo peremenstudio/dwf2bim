@@ -9,25 +9,25 @@ Builds a native Revit model from the permit documents of a building in Tel Aviv.
 
 ## Use
 
-Double-click `start.bat`. The first run installs what it needs. A page opens in your browser:
+Double-click `start.bat`. The first run installs what it needs. A page opens in your browser, in Hebrew:
 
-1. Enter the block and parcel, choose where to save, then click **Get files and build**. A folder named `<block>_<parcel>` is created there.
+1. Enter the block and parcel, choose where to save, then click the main button. A folder named `<block>_<parcel>` is created there.
 2. A browser window opens on the archive. Read its terms of use and approve them there. The tool reads nothing from the archive until you do, and the approval lasts 7 days.
 3. Wait a few minutes. The page shows the documents it chose, what it built, and what needs checking.
 4. In Revit, open a new project from your template, open a 3D view, and start Dynamo.
 5. Open `Build_<block>_<parcel>.dyn` from the project folder and press **Run**. Set the graph's switch to True only to replace a model already in the file.
 
-If the download does not work, put the files in the `<block>_<parcel>` folder yourself and tick **Use the files already in that folder**.
+If the download does not work, put the files in the `<block>_<parcel>` folder yourself and tick the box for using the files already in the folder.
 
 ### Which documents it takes
 
-| Document | Archive type | Format | Needed |
-|---|---|---|---|
-| Building | תכנית מתוקנת (אדריכלות) | DWF | Yes |
-| Area plan | חישוב שטחים | DWFX | No, there are no areas without it |
-| Survey | מפת מדידה להיתר | DWFX | No, there is no site or true position without it |
+| Document | Format | Needed |
+|---|---|---|
+| Corrected architectural plan | DWF | Yes |
+| Area calculation | DWFX | No, there are no areas without it |
+| Survey map for the permit | DWFX | No, there is no site or true position without it |
 
-It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in the project folder's `fetch_manifest.json`. Files replaced by a newer download move to its `_previous/` folder. To change the types, edit `config/archive.json`.
+It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in the project folder's `fetch_manifest.json`. Files replaced by a newer download move to its `_previous/` folder. The archive's names for these types are in `config/archive.json`, where they can be changed.
 
 ### About the archive
 The archive's documents are photographic copies, not certified documents, and may hold errors or be out of date. Some are protected by copyright, and their use is your responsibility. These terms are the city's, so read them in the archive. Downloaded files stay on your machine and are not part of this repository.

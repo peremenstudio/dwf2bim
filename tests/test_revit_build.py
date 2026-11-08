@@ -544,28 +544,72 @@ class Site(unittest.TestCase):
         self.assertEqual(len(missing), 1)
         self.assertAlmostEqual(LineString(missing[0]).length, 10.0, delta=0.1)
 
-    def test_apartments_take_what_borders_them_and_count_up_from_the_bottom(self):
+    def _apartments(self, floor_cells, level="L03"):
         from dwf2bim.site import assign_apartments
-        def box(x0, y0, x1, y1):
-            return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
-        def cell(n, c, b):
-            return {"n": n, "c": c, "t": 1.0, "ring": box(*b)}
-        typical = {"floors": [3, 4], "levels": ["L03", "L04"], "cells": [
-            cell("10", "1", (0, 0, 10, 10)), cell("11", "1", (10.2, 0, 20, 10)),
-            cell("12", "2004", (0, 10.2, 5, 12)), cell("13", "1017", (20.2, 0, 21, 10)), cell("14", "1001", (21.2, 0, 24, 10)),
-            cell("15", "1005", (40, 0, 45, 5)), cell("16", "2004", (60, 0, 65, 5)),
-        ]}
-        lower = {"floors": [1], "levels": ["L01"], "cells": [cell("1", "1", (0, 0, 10, 10))]}
+        def cell(n, c, b, t=1.0):
+            x0, y0, x1, y1 = b
+            return {"n": n, "c": c, "t": t, "ring": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]}
+        floor = {"floors": [3], "levels": [level], "cells": [cell(*c) for c in floor_cells]}
+        building = {"levels": {level: {"z": 10.5}}, "areas": [floor]}
+        assign_apartments(building)
+        return floor["unit_ids"][level], building
+
+    def test_each_apartment_gets_a_shelter_before_any_gets_a_second(self):
+        # the shelter S1 touches both apartments, S2 only the second: S1 must go to the first
+        ids, building = self._apartments([
+            ("A", "1", (0, 0, 10, 10), 60), ("B", "1", (10.2, 0, 20, 10), 60),
+            ("S1", "1001", (9, 10.2, 11, 13)), ("S2", "1001", (15, 10.2, 17, 13)),
+        ])
+        self.assertEqual(ids["S1"], ids["A"])
+        self.assertEqual(ids["S2"], ids["B"])
+        self.assertEqual([u["shelters"] for u in building["apartments"]["units"]], [1, 1])
+
+    def test_a_shelter_wall_follows_its_shelter_not_the_apartment_it_touches(self):
+        # the wall W touches apartment A, and wraps the shelter that belongs to B
+        ids, _ = self._apartments([
+            ("A", "1", (0, 0, 10, 10), 60), ("B", "1", (0, 13.1, 10, 23), 60),
+            ("W", "1017", (2, 10, 5, 10.2)), ("S", "1001", (2, 10.2, 5, 13)),
+            ("S2", "1001", (20, 0, 22, 3)), ("S3", "1001", (-3, 0, -0.1, 3)),
+        ])
+        self.assertEqual(ids["W"], ids["S"])
+
+    def test_every_balcony_joins_an_apartment_however_far(self):
+        ids, building = self._apartments([("A", "1", (0, 0, 10, 10), 60), ("B", "2004", (40, 0, 45, 5), 5)])
+        self.assertEqual(ids["B"], ids["A"])
+        self.assertEqual(building["apartments"]["parts_with_no_apartment"], [])
+
+    def test_a_small_residential_cell_is_not_an_apartment(self):
+        ids, building = self._apartments([("A", "1", (0, 0, 10, 10), 60), ("small", "1", (10.2, 0, 13, 3), 8)])
+        self.assertEqual(len(building["apartments"]["units"]), 1)
+        self.assertEqual(ids["small"], ids["A"])
+
+    def test_common_cells_stay_out_and_a_far_shelter_is_listed(self):
+        ids, building = self._apartments([("A", "1", (0, 0, 10, 10), 60), ("L", "1005", (11, 0, 13, 5)), ("far", "1001", (40, 0, 43, 3))])
+        self.assertNotIn("L", ids)
+        self.assertNotIn("far", ids)
+        self.assertEqual(building["apartments"]["parts_with_no_apartment"], [{"floors": [3], "cell": "far"}])
+
+    def test_numbers_run_from_the_bottom_up_across_levels(self):
+        from dwf2bim.site import assign_apartments
+        def cell(n):
+            return {"n": n, "c": "1", "t": 60.0, "ring": [[0, 0], [10, 0], [10, 10], [0, 10]]}
+        typical = {"floors": [3, 4], "levels": ["L03", "L04"], "cells": [cell("10")]}
+        lower = {"floors": [1], "levels": ["L01"], "cells": [cell("1")]}
         building = {"levels": {"L01": {"z": 3.5}, "L03": {"z": 10.5}, "L04": {"z": 14.0}}, "areas": [typical, lower]}
         assign_apartments(building)
-        self.assertEqual(lower["unit_ids"]["L01"], {"1": 1})
-        self.assertEqual(typical["unit_ids"]["L03"]["10"], 2)
-        self.assertEqual(typical["unit_ids"]["L03"]["12"], 2)
-        self.assertEqual(typical["unit_ids"]["L03"]["11"], 3)
-        self.assertEqual(typical["unit_ids"]["L03"]["14"], 3)
-        self.assertEqual(typical["unit_ids"]["L04"]["10"], 4)
-        self.assertNotIn("15", typical["unit_ids"]["L03"])
-        self.assertEqual(building["apartments"]["parts_with_no_apartment"], [{"floors": [3, 4], "cell": "16"}])
+        self.assertEqual((lower["unit_ids"]["L01"]["1"], typical["unit_ids"]["L03"]["10"], typical["unit_ids"]["L04"]["10"]), (1, 2, 3))
+
+    def test_open_building_lines_give_way_to_a_closed_one(self):
+        from dwf2bim.site import closed_lines_only
+        closed, opened = {"id": "c", "closed": True}, {"id": "o", "closed": False}
+        self.assertEqual(closed_lines_only([opened, closed]), ([closed], ["o"]))
+        self.assertEqual(closed_lines_only([opened]), ([opened], []))
+
+    def test_a_wall_counts_as_moved_only_past_the_tolerance_in_either_direction(self):
+        expected = ([0.0, 0.0], [5.0, 0.0])
+        wall_moved = load().wall_moved
+        self.assertFalse(wall_moved(expected, ([5.0, 0.1], [0.1, 0.0])))
+        self.assertTrue(wall_moved(expected, ([0.0, 0.0], [9.0, 0.0])))
 
     def test_apartment_column_beats_inference_and_basements_stay_common(self):
         from dwf2bim.site import assign_apartments

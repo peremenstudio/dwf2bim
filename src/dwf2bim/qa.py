@@ -488,15 +488,20 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
         if site.get("slab_clip"):
             out += [f"- Slabs fitted to the area plan: {site['slab_clip']}."]
         out.append("")
+    if site and site.get("building_lines_left_out"):
+        out += [f"Building lines on the Revit sheet not used, as the closed line stands alone: {site['building_lines_left_out']}", ""]
     if b.get("apartments"):
         apartments = b["apartments"]
         if apartments["source"] == "inferred":
             out += ["## Apartments (inferred)", "", "The area plan's apartment column is empty. Apartments are inferred from residential cells and what borders them. Check this list.", ""]
         else:
             out += ["## Apartments (from the area table)", ""]
-        out += ["| IL_UnitID | Level | Cells | Area m2 |", "|---:|---|---|---:|"]
-        out += [f"| {u['unit']} | {u['level']} | {', '.join(u['cells'])} | {u['area_m2']} |" for u in apartments["units"]]
+        out += ["| IL_UnitID | Level | Cells | Area m2 | Shelters |", "|---:|---|---|---:|---:|"]
+        out += [f"| {u['unit']} | {u['level']} | {', '.join(u['cells'])} | {u['area_m2']} | {u['shelters']} |" for u in apartments["units"]]
         out.append("")
+        odd = [u["unit"] for u in apartments["units"] if u["shelters"] != 1]
+        if odd:
+            out += [f"Apartments without exactly one shelter, to check: {odd}", ""]
         if apartments["parts_with_no_apartment"]:
             out += [f"Parts with no apartment next to them, given 0: {apartments['parts_with_no_apartment']}", ""]
     if site and site.get("storey_slabs"):

@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -22,6 +23,7 @@ TERMS_WAIT_S = 300
 PAGE_WAIT_MS = 60000
 DOWNLOAD_WAIT_MS = 600000
 PAUSE_S = 1.0  # between requests to the archive, which is a public service
+PROGRESS_S = 30  # the archive sends a file whole, so the only progress to show is the time passing
 
 
 class FetchError(Exception):
@@ -194,6 +196,22 @@ def _existing_file(dest: Path, data: bytes):
     return None
 
 
+def _get_with_progress(context, url, log):
+    """Get a file, saying now and then that it is still coming. Nothing shows in the browser window meanwhile."""
+    done = threading.Event()
+    started = time.time()
+
+    def report():
+        while not done.wait(PROGRESS_S):
+            log(f"Still downloading, {int(time.time() - started)} seconds so far.")
+
+    threading.Thread(target=report, daemon=True).start()
+    try:
+        return context.request.get(url, timeout=DOWNLOAD_WAIT_MS)
+    finally:
+        done.set()
+
+
 def _download_role(context, role, rows, dest, known, log):
     """The newest document of this kind in a format the build can read. Returns the record and what was skipped."""
     spec = _CFG["documents"][role]
@@ -205,8 +223,9 @@ def _download_role(context, role, rows, dest, known, log):
             log(f"{role}: {row['type']} of {row['date']} is already here: {previous['file']}")
             return previous, skipped
         log(f"{role}: downloading {row['type']} of {row['date']}")
+        log("A large file can take several minutes. Leave the browser window open. Nothing shows in it, and the file appears in the folder when it is complete.")
         time.sleep(PAUSE_S)
-        response = context.request.get(_CFG["base_url"] + row["url"], timeout=DOWNLOAD_WAIT_MS)
+        response = _get_with_progress(context, _CFG["base_url"] + row["url"], log)
         if not response.ok:
             skipped.append({**row, "reason": f"HTTP {response.status}"})
             log(f"{role}: the archive answered {response.status}")

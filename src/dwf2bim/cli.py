@@ -170,6 +170,7 @@ def run_project(block, parcel, save_folder, use_local: bool = False, log=print) 
     if not save_folder.is_absolute():
         raise fetch.FetchError(f"Choose a full folder path, such as D:\\Projects. Got '{save_folder}'")
     folder = save_folder / name
+    remember_save_folder(save_folder)
     manifest = {}
     if use_local:
         if not folder.exists():
@@ -177,7 +178,6 @@ def run_project(block, parcel, save_folder, use_local: bool = False, log=print) 
         log(f"Using the files in {folder}")
     else:
         manifest = fetch.fetch(block, parcel, folder, log=log)
-    remember_save_folder(save_folder)
     out = build_folder(folder)
     building = json.loads((out / "building.json").read_text(encoding="utf8"))
     counts = {}

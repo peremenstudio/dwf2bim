@@ -68,8 +68,8 @@ Everything is native. An element that cannot be built natively is listed in the 
 Revit's API has no way to create a Property Line, so the build draws 2D lines on the styles named in `site_line_names` in `config/revit_mapping.json`. To turn them into Property Lines:
 
 1. Open a plan of the ground floor. Massing & Site > Property Line > Create by sketching.
-2. Pick Lines, then Tab to select the closed chain of `קו מגרש`. Finish, and check that the area reads 806 m2.
-3. Do the same for `קו בניין`: 316 m2 for the closed line, and the two open lines separately.
+2. Pick Lines, then Tab to select the closed chain on the plot line style. Finish, and check that the area reads 806 m2.
+3. Do the same for the building line style: 316 m2 for the closed line.
 
 Last of all the script sets the shared coordinates (ITM, true north, elevation) from the survey fit and moves the Project Base Point to a plot corner. The result is in the log under `placement`.
 
@@ -86,6 +86,9 @@ The build creates the DWF's levels under their DWF names, each with a floor plan
 | `wall_base_by_word`, `floor_base_by_word` | Which type to duplicate when a new one is needed. The first word found in the DWF name wins, in the listed order |
 | `opening_families` | DWF family to template family, with `type_format` for type names such as `{w}w/{h}h`. A family may be of the other category |
 | `railing_types`, `default_railing_type` | Railing type names |
+
+## Checking the result
+The log lists walls under `walls_moved_by_revit` when their ends are over 30 cm from the DWF's, and under `walls_not_from_the_dwf` when they lack its stamp in Comments.
 
 ## Known limits
 - Door swing and window facing are not read from the DWF; flip them in Revit where needed.

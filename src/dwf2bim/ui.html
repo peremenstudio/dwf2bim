@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,7 +8,7 @@
 :root { --bg: #f6f7f8; --panel: #fff; --text: #1d2125; --muted: #5e6873; --line: #d9dde1; --accent: #0b63b6; --bad: #b3261e; --warn: #8a5a00; --log: #f0f2f4; }
 @media (prefers-color-scheme: dark) { :root { --bg: #15181b; --panel: #1e2226; --text: #e8eaed; --muted: #a0a8b0; --line: #343a40; --accent: #6db1f2; --bad: #f2867f; --warn: #e3b35a; --log: #14171a; } }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, "Segoe UI", sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, "Segoe UI", Arial, sans-serif; }
 main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
 h1 { font-size: 24px; margin: 0 0 4px; }
 h2 { font-size: 16px; margin: 0 0 10px; }
@@ -25,69 +25,227 @@ button:disabled { opacity: .55; cursor: default; }
 .pick { display: flex; gap: 8px; margin-top: 4px; }
 .pick input { flex: 1; width: auto; min-width: 0; margin-top: 0; font-weight: 400; }
 .check { display: flex; gap: 8px; align-items: center; font-weight: 400; font-size: 14px; margin-top: 12px; }
-#log { background: var(--log); border-radius: 6px; padding: 10px 12px; max-height: 300px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.5 ui-monospace, Consolas, monospace; margin: 0; }
+#log { background: var(--log); border-radius: 6px; padding: 10px 12px; max-height: 300px; overflow: auto; font-size: 13px; }
+#log div { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
+#log div[dir=ltr] { font: 12.5px/1.5 ui-monospace, Consolas, monospace; text-align: left; }
 #error { color: var(--bad); font-weight: 600; }
 .warn { color: var(--warn); }
+.scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 14px; }
-th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th, td { text-align: start; padding-block: 5px; padding-inline: 0 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 td.n { font-variant-numeric: tabular-nums; }
-code { font: 12.5px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
-ol { margin: 0; padding-left: 20px; }
+code, .path { font: 12.5px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+#dyn, #where .path { display: block; text-align: left; }
+ol { margin: 0; padding-inline-start: 20px; }
 li { margin-bottom: 6px; }
 img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var(--line); margin-top: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.bar-text { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; margin-bottom: 6px; }
+.bar-text span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.bar { height: 12px; background: var(--log); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
+#barFill { height: 100%; width: 0; background-color: var(--accent); transition: width .4s; }
+#barFill.active { background-image: linear-gradient(45deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%); background-size: 24px 24px; animation: move 1s linear infinite; }
+#barFill.stopped { background-color: var(--bad); }
+@keyframes move { to { background-position: -24px 0; } }
+@media (prefers-reduced-motion: reduce) { #barFill.active { animation: none; } }
 [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
 <h1>dwf2bim</h1>
-<p class="muted">Enter a block and parcel in Tel Aviv. This gets the newest permit documents from the city's engineering archive and prepares a model for Revit.</p>
+<p class="muted">הזינו גוש וחלקה בתל אביב. המערכת מורידה מארכיון ההנדסה של העירייה את מסמכי ההיתר העדכניים ביותר ומכינה מודל ל-Revit.</p>
 
 <section>
   <form id="form">
     <div class="fields">
-      <label>Block <input type="text" id="block" inputmode="numeric" autocomplete="off" required></label>
-      <label>Parcel <input type="text" id="parcel" inputmode="numeric" autocomplete="off" required></label>
+      <label>גוש <input type="text" id="block" inputmode="numeric" autocomplete="off" dir="ltr" required></label>
+      <label>חלקה <input type="text" id="parcel" inputmode="numeric" autocomplete="off" dir="ltr" required></label>
     </div>
-    <label style="margin-top:14px">Save to
+    <label style="margin-top:14px">שמירה בתיקייה
       <span class="pick">
-        <input type="text" id="folder" autocomplete="off" placeholder="D:\Projects" required>
-        <button type="button" id="browse">Browse</button>
+        <input type="text" id="folder" autocomplete="off" dir="ltr" placeholder="D:\Projects" required>
+        <button type="button" id="browse">עיון</button>
       </span>
     </label>
-    <p class="muted" id="where" style="margin:6px 0 0">A folder named block_parcel is created here. It holds the files and the Dynamo graph to run.</p>
-    <div class="row"><button class="primary" id="go" type="submit">Get files and build</button></div>
-    <label class="check"><input type="checkbox" id="local"> Use the files already in that folder, and do not open the archive</label>
+    <p class="muted" id="where" style="margin:6px 0 0"></p>
+    <div class="row"><button class="primary" id="go" type="submit">הורדת קבצים ובנייה</button></div>
+    <label class="check"><input type="checkbox" id="local"> להשתמש בקבצים שכבר נמצאים בתיקייה, בלי לפתוח את הארכיון</label>
   </form>
-  <p class="muted" style="margin:12px 0 0">A browser window opens on the archive. Read its terms of use and approve them there. The documents are not certified copies, and some are protected by copyright.</p>
+  <p class="muted" style="margin:12px 0 0">ייפתח חלון דפדפן עם הארכיון. קראו בו את תנאי השימוש ואשרו אותם שם. המסמכים אינם העתקים מאושרים, וחלקם מוגנים בזכויות יוצרים.</p>
 </section>
 
 <section id="progress" hidden>
-  <h2 id="state">Working</h2>
+  <h2 id="state">בעבודה</h2>
+  <div class="bar-text"><span id="barLabel"></span><span><span id="barPercent"></span> · <span id="barTime"></span></span></div>
+  <div class="bar" id="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="barLabel"><div id="barFill"></div></div>
   <p id="error" hidden></p>
-  <pre id="log" role="log" aria-live="polite"></pre>
+  <div id="log" role="log" aria-live="polite"></div>
 </section>
 
 <section id="done" hidden>
-  <h2>Result</h2>
-  <div id="documents"></div>
-  <div id="counts"></div>
-  <p id="warnings" class="warn" hidden></p>
-  <h2 style="margin-top:16px">Build it in Revit</h2>
+  <h2>תוצאה</h2>
+  <div id="documents" class="scroll"></div>
+  <div id="counts" class="scroll"></div>
+  <p id="warnings" class="warn" style="margin-top:12px" hidden></p>
+  <h2 style="margin-top:16px">בנייה ב-Revit</h2>
   <ol>
-    <li>Open a new project from your template, or a saved copy of a project.</li>
-    <li>Open a 3D view, then Manage &gt; Dynamo.</li>
-    <li>Open <code id="dyn"></code></li>
-    <li>Press Run. If the file already holds a model to replace, first set the switch in the graph to True.</li>
+    <li>פתחו פרויקט חדש מהתבנית שלכם, או עותק שמור של פרויקט.</li>
+    <li>פתחו תצוגת 3D, ואז Manage &gt; Dynamo.</li>
+    <li>פתחו את הקובץ <code id="dyn" dir="ltr"></code></li>
+    <li>לחצו Run. אם בקובץ כבר יש מודל להחלפה, העבירו קודם את המתג בגרף ל-True.</li>
   </ol>
-  <div class="row"><button type="button" id="openFolder">Open the project folder</button></div>
-  <img id="preview" alt="3D preview of the model" hidden>
+  <div class="row"><button type="button" id="openFolder">פתיחת תיקיית הפרויקט</button></div>
+  <img id="preview" alt="תצוגה תלת־ממדית של המודל" hidden>
 </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
 let since = 0, timer = null;
+
+const ROLES = {architecture: 'תכנית אדריכלות', area: 'חישוב שטחים', survey: 'מפת מדידה'};
+const COUNTS = {wall: 'קירות', floor: 'רצפות', stair: 'מדרגות', railing: 'מעקים', generic: 'פלטות', door: 'דלתות', window: 'חלונות',
+  areas: 'שטחים', apartments: 'דירות (מוסק)', unresolved: 'לא נפתרו'};
+const role = text => text.split(/,\s*/).map(r => ROLES[r] || r).join(', ');
+const ltr = text => `\u2066${text}\u2069`;  // a path or file name keeps its own direction inside a Hebrew line
+
+// What the server says, in Hebrew. Anything not listed here is technical and shows as it is.
+const MESSAGES = [
+  [/^Block and parcel must be numbers/, () => 'גוש וחלקה חייבים להיות מספרים.'],
+  [/^Choose where to save the project\.$/, () => 'יש לבחור תיקייה לשמירה, בנתיב מלא.'],
+  [/^Choose a full folder path/, () => 'יש לבחור תיקייה בנתיב מלא, למשל D:\\Projects.'],
+  [/^There is no folder (.+)$/, m => `התיקייה לא קיימת: ${ltr(m[1])}`],
+  [/^A run is already in progress$/, () => 'כבר יש הרצה פעילה.'],
+  [/^No such folder yet$/, () => 'התיקייה עדיין לא קיימת.'],
+  [/^The run failed\. Details are in the log\.$/, () => 'ההרצה נכשלה. הפרטים ביומן.'],
+  [/^Done\.$/, () => 'הסתיים.'],
+  [/^Read the terms of use in the browser window/, () => 'קראו את תנאי השימוש בחלון הדפדפן ולחצו שם על "אשר והמשך".'],
+  [/^Terms accepted\.$/, () => 'התנאים אושרו.'],
+  [/^The archive's terms were accepted in this browser profile/, () => 'תנאי הארכיון אושרו בדפדפן הזה ב-7 הימים האחרונים.'],
+  [/^The archive's terms were not accepted/, () => 'תנאי הארכיון לא אושרו בדפדפן, ולכן דבר לא נקרא ולא הורד.'],
+  [/^The archive shows no documents/, () => 'בארכיון אין מסמכים לגוש ולחלקה האלה.'],
+  [/^The archive lists (\d+) documents\.$/, m => `בארכיון נמצאו ${m[1]} מסמכים.`],
+  [/^The archive did not return a document$/, () => 'הארכיון לא החזיר מסמך.'],
+  [/^The archive returned no file content$/, () => 'הארכיון החזיר תשובה בלי תוכן קובץ.'],
+  [/^Could not open Chrome or Edge/, () => 'לא הצלחנו לפתוח את Chrome או Edge.'],
+  [/^The browser stopped before the download finished/, () => 'הדפדפן נסגר לפני שההורדה הסתיימה.'],
+  [/^No usable document in the archive for: (.+?)\. See (.+)$/, m => `אין בארכיון מסמך שמיש עבור: ${role(m[1])}. פרטים ב: ${ltr(m[2])}`],
+  [/^(\w+): (.+) of (\S+) is already here: (.+)$/, m => `${role(m[1])}: המסמך מתאריך ${m[3]} כבר קיים: ${ltr(m[4])}`],
+  [/^(\w+): downloading (.+) of (\S+)$/, m => `${role(m[1])}: מוריד את המסמך מתאריך ${m[3]}`],
+  [/^A large file can take several minutes/, () => 'קובץ גדול יכול לקחת כמה דקות. השאירו את חלון הדפדפן פתוח. לא יוצג בו דבר, והקובץ יופיע בתיקייה רק בסיום.'],
+  [/^Still downloading, (\d+) seconds so far\.$/, m => `ההורדה עדיין נמשכת: ${Math.floor(m[1] / 60)} דקות ו-${m[1] % 60} שניות עד עכשיו.`],
+  [/^(\w+): the archive answered (\d+)$/, m => `${role(m[1])}: הארכיון ענה ${m[2]}`],
+  [/^(\w+): (.+) is (\S+), trying an older one$/, m => `${role(m[1])}: ${ltr(m[2])} בפורמט ${ltr(m[3])}, מנסה מסמך ישן יותר`],
+  [/^(\w+): same content as (.+), already here$/, m => `${role(m[1])}: הקובץ כבר קיים בשם ${ltr(m[2])}`],
+  [/^(\w+): saved (.+) \(([\d.]+) MB\)$/, m => `${role(m[1])}: נשמר ${ltr(m[2])} (${m[3]} MB)`],
+  [/^Moved aside: (.+)$/, m => `הועבר לתיקיית _previous: ${ltr(m[1])}`],
+  [/^Not found in a usable format: (\w+)\./, m => `לא נמצא בפורמט שמיש: ${role(m[1])}. המודל נבנה בלעדיו.`],
+  [/^Check: (\w+) is from online request (\S+), architecture from (\S+)$/, m => `לבדיקה: ${role(m[1])} שייך לבקשה מקוונת ${m[2]}, והאדריכלות לבקשה ${m[3]}.`],
+  [/^(\w+) is from online request (\S+), architecture from (\S+)$/, m => `${role(m[1])} שייך לבקשה מקוונת ${m[2]}, והאדריכלות לבקשה ${m[3]}.`],
+  [/^Using the files in (.+)$/, m => `משתמש בקבצים שבתיקייה: ${ltr(m[1])}`],
+  [/^Not recognised as a survey or an area plan, skipped: (.+)$/, m => `לא זוהה כמפת מדידה או כתוכנית שטחים, ולכן דולג: ${ltr(m[1])}`],
+  [/^the folder has no DWF of the building$/, () => 'אין בתיקייה קובץ DWF של הבניין.'],
+  [/^Apartment numbers are inferred/, () => 'מספרי הדירות מוסקים, כי תוכנית השטחים לא מציינת אותם. בדקו ב-BUILD_REPORT.md.'],
+  [/^Stage 1\/6/, () => 'שלב 1 מתוך 6: קריאת הקובץ'],
+  [/^Stage 2\/6/, () => 'שלב 2 מתוך 6: פירוק למבטים'],
+  [/^Stage 3-4\/6/, () => 'שלבים 3–4 מתוך 6: יישור תוכניות, גבהים ושחזור אלמנטים'],
+  [/^Stage 4b\/6/, () => 'שלב 4ב: מפת מדידה, קווי מגרש ובניין, תוכנית שטחים'],
+  [/^Stage 5\/6/, () => 'שלב 5 מתוך 6: כתיבת IFC'],
+  [/^Stage 6\/6/, () => 'שלב 6 מתוך 6: בדיקות'],
+  [/^Dynamo graph: (.+)$/, m => `קובץ Dynamo: ${ltr(m[1])}`],
+  [/^Done: (.+)$/, m => `המודל נשמר ב: ${ltr(m[1])}`],
+];
+
+function translate(text) {
+  for (const [pattern, write] of MESSAGES) {
+    const match = String(text).match(pattern);
+    if (match) return write(match);
+  }
+  return null;
+}
+
+function addLog(line) {
+  const row = document.createElement('div');
+  const hebrew = translate(line);
+  row.textContent = hebrew || line;
+  row.dir = hebrew ? 'auto' : 'ltr';
+  $('log').appendChild(row);
+}
+
+const say = text => translate(text) || text;
+
+// How far the whole run is at each message. The archive does not state a file's size, so a file
+// has no percentage of its own: the bar waits at that step, moving and with the clock running.
+const STEPS = [
+  [/^Read the terms of use/, 3, 'ממתין לאישור התנאים בחלון הדפדפן'],
+  [/^The archive's terms were accepted|^Terms accepted/, 5, 'קורא את רשימת המסמכים'],
+  [/^The archive lists/, 8, 'בוחר את המסמכים העדכניים'],
+  [/^architecture: downloading/, 10, 'מוריד את תכנית האדריכלות (הקובץ הגדול, יכול לקחת כמה דקות)'],
+  [/^area: downloading/, 50, 'מוריד את חישוב השטחים'],
+  [/^survey: downloading/, 53, 'מוריד את מפת המדידה'],
+  [/^Using the files in|^Stage 1\/6/, 58, 'קורא את קובץ הבניין'],
+  [/^Stage 2\/6/, 62, 'מפרק למבטים'],
+  [/^Stage 3-4\/6/, 66, 'משחזר את האלמנטים'],
+  [/^Stage 4b\/6/, 78, 'מפת מדידה ושטחים'],
+  [/^Stage 5\/6/, 85, 'כותב IFC'],
+  [/^Stage 6\/6/, 88, 'בודק את המודל'],
+  [/^Dynamo graph:/, 98, 'כותב את קובץ ה-Dynamo'],
+  [/^Done\.$/, 100, 'הסתיים'],
+];
+const LOCAL_START = 58;  // with no download, the build is the whole bar
+let startedAt = 0, clock = null, localRun = false;
+
+function setBar(percent, label) {
+  const shown = localRun ? Math.max(0, Math.round((percent - LOCAL_START) / (100 - LOCAL_START) * 100)) : percent;
+  $('barFill').style.width = shown + '%';
+  $('bar').setAttribute('aria-valuenow', shown);
+  $('barPercent').textContent = shown + '%';
+  if (label) $('barLabel').textContent = label;
+}
+
+function stepFrom(line) {
+  const step = STEPS.find(([pattern]) => pattern.test(line));
+  if (step) setBar(step[1], step[2]);
+}
+
+function tick() {
+  const seconds = Math.floor((Date.now() - startedAt) / 1000);
+  $('barTime').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function startBar(local, seconds = 0) {
+  localRun = local;
+  startedAt = Date.now() - seconds * 1000;
+  $('barFill').className = 'active';
+  setBar(local ? LOCAL_START : 1, local ? 'קורא את קובץ הבניין' : 'פותח את הארכיון בדפדפן');
+  tick();
+  clearInterval(clock);
+  clock = setInterval(tick, 1000);
+}
+
+function endBar(failed) {
+  clearInterval(clock);
+  $('barFill').className = failed ? 'stopped' : '';
+  if (failed) $('barLabel').textContent = 'נעצר';
+  else setBar(100, 'הסתיים');
+}
+
+function showWhere() {
+  const block = $('block').value.trim(), parcel = $('parcel').value.trim(), folder = $('folder').value.trim().replace(/[\\/]+$/, '');
+  const box = $('where');
+  if (block && parcel && folder) {
+    box.textContent = 'הקבצים וקובץ ה-Dynamo יישמרו ב: ';
+    const path = document.createElement('span');
+    path.className = 'path';
+    path.dir = 'ltr';
+    path.textContent = `${folder}\\${block}_${parcel}`;
+    box.appendChild(path);
+  } else {
+    box.textContent = 'תיווצר כאן תיקייה בשם גוש_חלקה, ובה הקבצים וקובץ ה-Dynamo להרצה.';
+  }
+}
+
+const post = (path, body) => fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
 function esc(text) {
   const box = document.createElement('div');
@@ -95,22 +253,14 @@ function esc(text) {
   return box.innerHTML;
 }
 
-function showWhere() {
-  const block = $('block').value.trim(), parcel = $('parcel').value.trim(), folder = $('folder').value.trim().replace(/[\\/]+$/, '');
-  $('where').textContent = block && parcel && folder ? `The files and the Dynamo graph go in ${folder}\\${block}_${parcel}`
-    : 'A folder named block_parcel is created here. It holds the files and the Dynamo graph to run.';
-}
-
-const post = (path, body) => fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-
 function showResult(result) {
   const docs = Object.entries(result.documents || {});
-  $('documents').innerHTML = docs.length ? '<table><tr><th>Document</th><th>Archive type</th><th>Date</th><th>File</th></tr>' +
-    docs.map(([role, d]) => `<tr><td>${esc(role)}</td><td dir="rtl" style="text-align:left">${esc(d.type)}</td><td>${esc(d.date)}</td><td><code>${esc(d.file)}</code></td></tr>`).join('') + '</table><br>' : '';
-  $('counts').innerHTML = '<table><tr><th>Modelled</th><th>Count</th></tr>' +
-    Object.entries(result.counts).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="n">${esc(v)}</td></tr>`).join('') + '</table>';
-  const notes = [...(result.warnings || [])];
-  if (result.missing && result.missing.length) notes.unshift('Built without: ' + result.missing.join(', '));
+  $('documents').innerHTML = docs.length ? '<table><tr><th>מסמך</th><th>סוג בארכיון</th><th>תאריך</th><th>קובץ</th></tr>' +
+    docs.map(([r, d]) => `<tr><td>${esc(ROLES[r] || r)}</td><td>${esc(d.type)}</td><td dir="ltr" style="text-align:start">${esc(d.date)}</td><td><code dir="ltr">${esc(d.file)}</code></td></tr>`).join('') + '</table><br>' : '';
+  $('counts').innerHTML = '<table><tr><th>מה נבנה</th><th>כמות</th></tr>' +
+    Object.entries(result.counts).map(([k, v]) => `<tr><td>${esc(COUNTS[k] || k)}</td><td class="n">${esc(v)}</td></tr>`).join('') + '</table>';
+  const notes = (result.warnings || []).map(say);
+  if (result.missing && result.missing.length) notes.unshift('נבנה בלי: ' + result.missing.map(r => ROLES[r] || r).join(', '));
   $('warnings').hidden = !notes.length;
   $('warnings').textContent = notes.join(' · ');
   $('dyn').textContent = result.graph;
@@ -119,17 +269,25 @@ function showResult(result) {
   $('done').hidden = false;
 }
 
+function stop(message) {
+  $('error').textContent = say(message);
+  $('error').hidden = false;
+  $('state').textContent = 'נעצר';
+  $('go').disabled = false;
+}
+
 async function poll() {
   const s = await (await fetch('/api/status?since=' + since)).json();
   since = s.total;
   if (s.lines.length) {
-    $('log').textContent += s.lines.join('\n') + '\n';
+    s.lines.forEach(line => { addLog(line); stepFrom(line); });
     $('log').scrollTop = $('log').scrollHeight;
   }
   if (s.running) { timer = setTimeout(poll, 1000); return; }
   $('go').disabled = false;
-  $('state').textContent = s.error ? 'Stopped' : 'Finished';
-  if (s.error) { $('error').textContent = s.error; $('error').hidden = false; }
+  endBar(Boolean(s.error));
+  if (s.error) stop(s.error);
+  else $('state').textContent = 'הסתיים';
   if (s.result) showResult(s.result);
 }
 
@@ -141,27 +299,31 @@ $('form').addEventListener('submit', async e => {
   $('error').hidden = true;
   $('done').hidden = true;
   $('progress').hidden = false;
-  $('state').textContent = 'Working';
+  $('state').textContent = 'בעבודה';
   $('go').disabled = true;
+  startBar($('local').checked);
   const r = await post('/api/run', {block: $('block').value.trim(), parcel: $('parcel').value.trim(), save_folder: $('folder').value.trim(), use_local: $('local').checked});
-  if (!r.ok) {
-    $('error').textContent = (await r.json()).error;
-    $('error').hidden = false;
-    $('state').textContent = 'Stopped';
-    $('go').disabled = false;
-    return;
-  }
+  if (!r.ok) { endBar(true); stop((await r.json()).error); return; }
   poll();
 });
 
 $('openFolder').addEventListener('click', () => post('/api/open', {}));
 $('browse').addEventListener('click', async () => {
   $('browse').disabled = true;
-  const chosen = (await (await post('/api/browse', {start: $('folder').value.trim()})).json()).folder;
+  const chosen = (await (await post('/api/browse', {start: $('folder').value.trim(), title: 'איפה ליצור את תיקיית הפרויקט?'})).json()).folder;
   $('browse').disabled = false;
   if (chosen) { $('folder').value = chosen; showWhere(); }
 });
 ['block', 'parcel', 'folder'].forEach(id => $(id).addEventListener('input', showWhere));
+showWhere();
+// a run goes on when the page is reloaded, so pick it up again
+fetch('/api/status?since=0').then(r => r.json()).then(s => {
+  if (!s.running) return;
+  $('progress').hidden = false;
+  $('go').disabled = true;
+  startBar(s.local, s.seconds);
+  poll();
+});
 fetch('/api/settings').then(r => r.json()).then(s => { if (s.save_folder && !$('folder').value) { $('folder').value = s.save_folder; showWhere(); } });
 </script>
 </body>

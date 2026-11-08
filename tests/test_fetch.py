@@ -4,7 +4,9 @@ import json
 import sys
 import tempfile
 import threading
+import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -13,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from dwf2bim import dynamo, fetch
 
-AREA = "חישוב שטחים"
-PLAN = "תכנית מתוקנת (אדריכלות)"
+AREA = fetch._CFG["documents"]["area"]["types"][0]
+PLAN = fetch._CFG["documents"]["architecture"]["types"][0]
 
 
 class ChoosingDocuments(unittest.TestCase):
@@ -58,7 +60,37 @@ class ReadingDownloads(unittest.TestCase):
         self.assertEqual(fetch.safe_name("../../evil.dwf"), "evil.dwf")
         self.assertEqual(fetch.safe_name("a:b?.dwf"), "a_b_.dwf")
         self.assertEqual(fetch.safe_name(None), "document")
+
+    def test_a_hebrew_file_name_is_kept(self):
+        name = "\u05ea\u05db\u05e0\u05d9\u05ea \u05de\u05ea\u05d5\u05e7\u05e0\u05ea.dwf"
+        self.assertEqual(fetch.safe_name(name), name)
         self.assertEqual(fetch.safe_name(".."), "document")
+
+
+class DownloadProgress(unittest.TestCase):
+    def test_a_slow_download_reports_and_stops_reporting_when_done(self):
+        lines = []
+
+        class Request:
+            def get(self, url, timeout):
+                time.sleep(0.25)
+                return "answer"
+
+        class Context:
+            request = Request()
+
+        with mock.patch.object(fetch, "PROGRESS_S", 0.1):
+            self.assertEqual(fetch._get_with_progress(Context(), "u", lines.append), "answer")
+            count = len(lines)
+            time.sleep(0.25)
+        self.assertGreaterEqual(count, 1)
+        self.assertEqual(len(lines), count)
+        self.assertIn("Still downloading", lines[0])
+
+    def test_the_page_has_hebrew_for_the_waiting_messages(self):
+        from dwf2bim import ui
+        self.assertIn("A large file can take several minutes", ui.PAGE)
+        self.assertIn("Still downloading", ui.PAGE)
 
 
 class KeepingFiles(unittest.TestCase):
@@ -143,6 +175,17 @@ class ProjectFolder(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(fetch.FetchError):
                 cli.run_project("1", "2", folder, use_local=True)
+
+
+class PageInHebrew(unittest.TestCase):
+    def test_page_reads_right_to_left_in_hebrew(self):
+        from dwf2bim import ui
+        self.assertIn('<html lang="he" dir="rtl">', ui.PAGE)
+
+    def test_every_document_kind_has_a_hebrew_name(self):
+        from dwf2bim import ui
+        for role in fetch._CFG["documents"]:
+            self.assertIn(f"{role}: '", ui.PAGE)
 
 
 class LocalPageIsLocal(unittest.TestCase):

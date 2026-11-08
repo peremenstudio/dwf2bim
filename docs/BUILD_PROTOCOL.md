@@ -134,5 +134,5 @@ The IFC remains useful as a quick geometry check.
 
 ## Other limits of the survey and area route
 - The plot and building lines are found by colour (`survey_plot_stroke`, `survey_building_line` in `config/site.json`). A survey drawn in other colours needs those values, and until then the model is not placed and the report says so.
-- `IL_UnitID` runs through the building from the bottom up. It comes from the area table's apartment column when that is filled in. When it is empty it is inferred: each residential cell is an apartment, and shelters, wall thicknesses, niches and balconies join the one they border. The report lists the result and its source. Other cells, and every cell on a floor with no residential cell, get 0.
+- `IL_UnitID` runs through the building from the bottom up. It comes from the area table's apartment column when that is filled in. When it is empty it is inferred: a large residential cell is an apartment. Shelters are shared out so that as many apartments as possible have one, a spare one going to the apartment beside it. A shelter's walls follow it, every balcony joins the nearest apartment, and a niche the one it borders. The report lists the result, its source, and apartments without exactly one shelter. Other cells, and every cell on a floor with no residential cell, get 0.
 - Each area is set to Export to IFC = Yes.

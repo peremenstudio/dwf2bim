@@ -1,6 +1,6 @@
 # dwf2bim
 
-Builds a native Revit model from a building's permit documents. All code, names and outputs are in English; the user speaks Hebrew.
+Builds a native Revit model from a building's permit documents. Code, names, outputs and documentation are in English only. The exceptions are the local page's text (`src/dwf2bim/ui.html`), and data that comes from the Hebrew system or has to match it, such as file names and `config/`. The user speaks Hebrew.
 
 ## When asked to build a model
 1. Ask where to save. From a block and parcel, with `PYTHONPATH=src`: `python -m dwf2bim run <block> <parcel> --folder <where>`. This creates `<where>/<block>_<parcel>`. The person using the tool approves the archive's terms in the browser window. Never click that approval for them. If the files are already in that folder, add `--local`.
@@ -14,6 +14,7 @@ Follow [docs/BUILD_PROTOCOL.md](docs/BUILD_PROTOCOL.md). Change the protocol the
 - A Revit property beats a measurement, and a measurement beats an inference. Each element records its source.
 - Never drop an element silently: it is either modelled, excluded by configuration, or listed as unresolved.
 - A new family goes in `config/classification.json`, a new term in `config/glossary.json`, an archive document type in `config/archive.json`. Do not hard-code them.
+- A new message from the server that a person should read needs its Hebrew in `MESSAGES` in `ui.html`. Anything not listed shows in English.
 - The decoder must raise on an unknown opcode. A silent desync once made it stop at 5 of 73 views.
 
 ## For each fix: this model, or all models?

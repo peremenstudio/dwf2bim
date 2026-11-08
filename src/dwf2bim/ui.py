@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +22,7 @@ import sys, tkinter, tkinter.filedialog
 window = tkinter.Tk()
 window.withdraw()
 window.attributes("-topmost", True)
-sys.stdout.buffer.write(tkinter.filedialog.askdirectory(initialdir=sys.argv[1] or None, title="Where should the project folder be created?").encode("utf8"))
+sys.stdout.buffer.write(tkinter.filedialog.askdirectory(initialdir=sys.argv[1] or None, title=sys.argv[2]).encode("utf8"))
 """
 
 
@@ -38,6 +39,8 @@ class Job:
         self.project = None
         self.folder = None
         self.model = None
+        self.local = False
+        self.started = 0.0
 
     def log(self, message):
         with self.lock:
@@ -62,9 +65,9 @@ class Job:
 JOB = Job()
 
 
-def pick_folder(start) -> str:
+def pick_folder(start, title) -> str:
     """The system's folder dialog. It runs in its own process, as it cannot run on a server thread."""
-    done = subprocess.run([sys.executable, "-c", PICK_FOLDER, start or ""], capture_output=True, timeout=600)
+    done = subprocess.run([sys.executable, "-c", PICK_FOLDER, start or "", title], capture_output=True, timeout=600)
     return done.stdout.decode("utf8").replace("/", "\\").strip()
 
 
@@ -106,7 +109,8 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/status":
             since = int(parse_qs(url.query).get("since", ["0"])[0])
             with JOB.lock:
-                self._json({"running": JOB.running, "lines": JOB.lines[since:], "total": len(JOB.lines), "result": JOB.result, "error": JOB.error, "project": JOB.project})
+                self._json({"running": JOB.running, "lines": JOB.lines[since:], "total": len(JOB.lines), "result": JOB.result, "error": JOB.error, "project": JOB.project,
+                            "local": JOB.local, "seconds": int(time.time() - JOB.started) if JOB.running else 0})
         elif url.path == "/api/settings":
             self._json({"save_folder": cli.last_save_folder()})
         elif url.path == "/api/preview" and JOB.model:
@@ -140,10 +144,12 @@ class Handler(BaseHTTPRequestHandler):
             JOB.reset()
             JOB.running = True
             JOB.project = project
+            JOB.local = bool(body.get("use_local"))
+            JOB.started = time.time()
             threading.Thread(target=JOB.run, args=(body["block"], body["parcel"], save_folder, bool(body.get("use_local"))), daemon=True).start()
             self._json({"started": True})
         elif self.path == "/api/browse":
-            self._json({"folder": pick_folder(str(body.get("start") or cli.last_save_folder()))})
+            self._json({"folder": pick_folder(str(body.get("start") or cli.last_save_folder()), str(body.get("title") or ""))})
         elif self.path == "/api/open":
             folder = JOB.folder
             if folder is None or not folder.exists():
