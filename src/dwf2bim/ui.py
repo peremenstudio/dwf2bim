@@ -54,6 +54,7 @@ class Job:
             self.log("Done.")
         except (fetch.FetchError, cli.package.UnsupportedInput) as ex:
             self.error = str(ex)
+            self.result = partial_result(Path(save_folder) / fetch.project_name(block, parcel))
         except Exception:
             self.error = "The run failed. Details are in the log."
             self.log(traceback.format_exc())
@@ -63,6 +64,16 @@ class Job:
 
 
 JOB = Job()
+
+
+def partial_result(folder):
+    """What a stopped run did download, so the person sees it even though no model was built."""
+    manifest = folder / fetch.MANIFEST
+    if not manifest.exists():
+        return None
+    data = json.loads(manifest.read_text(encoding="utf8"))
+    JOB.folder = folder
+    return {"partial": True, "folder": str(folder), "documents": data.get("documents", {}), "missing": data.get("missing", []), "warnings": data.get("warnings", [])}
 
 
 def pick_folder(start, title) -> str:

@@ -1,6 +1,6 @@
 {
   "_comment": "Site and area plan rules. Area code names come from the tables of the area plan; a code not listed here shows its number.",
-  "building_line_names": ["קו בניין"],
+  "building_line_names": ["קו בניין", "קו בנין"],
   "survey_plot_stroke": "#0101FF",
   "survey_building_line": {"stroke": "#FF0000", "dash_min_m": 0.6, "dash_max_m": 1.6, "edge_min_m": 3.0},
   "balcony_codes": ["2001", "2002", "2004"],

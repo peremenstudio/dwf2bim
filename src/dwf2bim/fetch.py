@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 _CFG = json.loads((ROOT / "config" / "archive.json").read_text(encoding="utf8"))
 PROFILE = ROOT / ".browser_profile"
 MANIFEST = "fetch_manifest.json"
+OTHER_FORMATS = "_other_formats"  # documents the build cannot read yet, kept for the person to see
 TERMS_WAIT_S = 300
 PAGE_WAIT_MS = 60000
 DOWNLOAD_WAIT_MS = 600000
@@ -178,8 +179,19 @@ def _read_all_rows(page, log) -> list:
         link.click()
         page.wait_for_function("old => { const a = document.querySelector('.ms-listlink'); return a && a.getAttribute('downloadUrl') !== old; }", arg=first, timeout=PAGE_WAIT_MS)
         rows += page.evaluate(READ_ROWS, _CFG["columns"])
+    rows = unique_rows(rows)
     log(f"The archive lists {len(rows)} documents.")
     return rows
+
+
+def unique_rows(rows) -> list:
+    """A document can show on two pages of results. It is the same document when it has the same address."""
+    seen, out = set(), []
+    for row in rows:
+        if row["url"] not in seen:
+            seen.add(row["url"])
+            out.append(row)
+    return out
 
 
 def _load_manifest(dest: Path) -> dict:
@@ -233,8 +245,11 @@ def _download_role(context, role, rows, dest, known, log):
         name, data = decode_download(response.body())
         kind = file_format(data)
         if kind not in spec["formats"]:
-            skipped.append({**row, "file": name, "reason": f"format {kind}, need {' or '.join(spec['formats'])}"})
-            log(f"{role}: {name} is {kind}, trying an older one")
+            kept = dest / OTHER_FORMATS / name
+            kept.parent.mkdir(exist_ok=True)
+            kept.write_bytes(data)
+            skipped.append({**row, "file": f"{OTHER_FORMATS}/{name}", "reason": f"format {kind}, need {' or '.join(spec['formats'])}"})
+            log(f"{role}: {name} is {kind}, trying an older one. It is kept in {OTHER_FORMATS}.")
             continue
         file_name = _existing_file(dest, data)
         if file_name:

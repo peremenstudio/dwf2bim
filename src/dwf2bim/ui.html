@@ -88,6 +88,7 @@ img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var
   <div id="documents" class="scroll"></div>
   <div id="counts" class="scroll"></div>
   <p id="warnings" class="warn" style="margin-top:12px" hidden></p>
+  <div id="revit">
   <h2 style="margin-top:16px">בנייה ב-Revit</h2>
   <ol>
     <li>פתחו פרויקט חדש מהתבנית שלכם, או עותק שמור של פרויקט.</li>
@@ -97,6 +98,8 @@ img { max-width: 100%; display: block; border-radius: 6px; border: 1px solid var
   </ol>
   <div class="row"><button type="button" id="openFolder">פתיחת תיקיית הפרויקט</button></div>
   <img id="preview" alt="תצוגה תלת־ממדית של המודל" hidden>
+  </div>
+  <div class="row" id="partialOpen" hidden><button type="button" id="openFolder2">פתיחת תיקיית הפרויקט</button></div>
 </section>
 </main>
 <script>
@@ -135,7 +138,7 @@ const MESSAGES = [
   [/^A large file can take several minutes/, () => 'קובץ גדול יכול לקחת כמה דקות. השאירו את חלון הדפדפן פתוח. לא יוצג בו דבר, והקובץ יופיע בתיקייה רק בסיום.'],
   [/^Still downloading, (\d+) seconds so far\.$/, m => `ההורדה עדיין נמשכת: ${Math.floor(m[1] / 60)} דקות ו-${m[1] % 60} שניות עד עכשיו.`],
   [/^(\w+): the archive answered (\d+)$/, m => `${role(m[1])}: הארכיון ענה ${m[2]}`],
-  [/^(\w+): (.+) is (\S+), trying an older one$/, m => `${role(m[1])}: ${ltr(m[2])} בפורמט ${ltr(m[3])}, מנסה מסמך ישן יותר`],
+  [/^(\w+): (.+) is (\S+), trying an older one\. It is kept in (\S+)\.$/, m => `${role(m[1])}: ${ltr(m[2])} בפורמט ${ltr(m[3])}, שהמערכת עוד לא קוראת. הקובץ נשמר בתיקייה ${ltr(m[4])}, ומנסים מסמך ישן יותר.`],
   [/^(\w+): same content as (.+), already here$/, m => `${role(m[1])}: הקובץ כבר קיים בשם ${ltr(m[2])}`],
   [/^(\w+): saved (.+) \(([\d.]+) MB\)$/, m => `${role(m[1])}: נשמר ${ltr(m[2])} (${m[3]} MB)`],
   [/^Moved aside: (.+)$/, m => `הועבר לתיקיית _previous: ${ltr(m[1])}`],
@@ -257,12 +260,18 @@ function showResult(result) {
   const docs = Object.entries(result.documents || {});
   $('documents').innerHTML = docs.length ? '<table><tr><th>מסמך</th><th>סוג בארכיון</th><th>תאריך</th><th>קובץ</th></tr>' +
     docs.map(([r, d]) => `<tr><td>${esc(ROLES[r] || r)}</td><td>${esc(d.type)}</td><td dir="ltr" style="text-align:start">${esc(d.date)}</td><td><code dir="ltr">${esc(d.file)}</code></td></tr>`).join('') + '</table><br>' : '';
-  $('counts').innerHTML = '<table><tr><th>מה נבנה</th><th>כמות</th></tr>' +
+  const partial = Boolean(result.partial);
+  $('done').querySelector('h2').textContent = partial ? 'המסמכים שירדו' : 'תוצאה';
+  $('revit').hidden = partial;
+  $('partialOpen').hidden = !partial;
+  $('counts').innerHTML = partial ? '' : '<table><tr><th>מה נבנה</th><th>כמות</th></tr>' +
     Object.entries(result.counts).map(([k, v]) => `<tr><td>${esc(COUNTS[k] || k)}</td><td class="n">${esc(v)}</td></tr>`).join('') + '</table>';
   const notes = (result.warnings || []).map(say);
-  if (result.missing && result.missing.length) notes.unshift('נבנה בלי: ' + result.missing.map(r => ROLES[r] || r).join(', '));
+  if (result.missing && result.missing.length) notes.unshift((partial ? 'לא נמצא בפורמט שהמערכת קוראת: ' : 'נבנה בלי: ') + result.missing.map(r => ROLES[r] || r).join(', '));
   $('warnings').hidden = !notes.length;
   $('warnings').textContent = notes.join(' · ');
+  $('done').hidden = false;
+  if (partial) return;
   $('dyn').textContent = result.graph;
   $('preview').src = '/api/preview?t=' + Date.now();
   $('preview').hidden = false;
@@ -308,6 +317,7 @@ $('form').addEventListener('submit', async e => {
 });
 
 $('openFolder').addEventListener('click', () => post('/api/open', {}));
+$('openFolder2').addEventListener('click', () => post('/api/open', {}));
 $('browse').addEventListener('click', async () => {
   $('browse').disabled = true;
   const chosen = (await (await post('/api/browse', {start: $('folder').value.trim(), title: 'איפה ליצור את תיקיית הפרויקט?'})).json()).folder;

@@ -10,7 +10,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.validate
 
-from . import dynamo, fetch, ifc_export, package, qa, site, views as views_mod, xps
+from . import dwfx, dynamo, fetch, ifc_export, package, qa, site, views as views_mod, xps
 from .extract import Extractor
 from .names import level_id
 
@@ -27,17 +27,32 @@ def _log(msg):
 
 
 def classify_folder(folder: Path) -> dict:
-    """In a project folder: the DWF is the building, DWFX sheets are the survey and the area plan."""
+    """In a project folder: which file is the building, the survey and the area plan.
+
+    The download's manifest says so, when there is one. Otherwise a DWF is the building, and a
+    DWFX is read: an area table makes it the area plan, a plot boundary the survey, and thousands
+    of Revit objects the building.
+    """
     found = {"building": None, "survey": None, "area": None, "other": []}
+    roles = {}
+    manifest = folder / fetch.MANIFEST
+    if manifest.exists():
+        documents = json.loads(manifest.read_text(encoding="utf8")).get("documents", {})
+        roles = {d["file"]: role for role, d in documents.items() if d and (folder / d["file"]).exists()}
     for f in sorted(folder.iterdir()):
-        if f.suffix.lower() == ".dwf":
+        role = roles.get(f.name)
+        if role == "architecture" or (not role and f.suffix.lower() == ".dwf"):
             found["building"] = f
+        elif role in ("area", "survey"):
+            found[role] = xps.load(f)[0]
         elif f.suffix.lower() == ".dwfx":
             sheet = xps.load(f)[0]
             if site.is_area_sheet(sheet):
                 found["area"] = sheet
             elif site.survey_corners(sheet):
                 found["survey"] = sheet
+            elif found["building"] is None and dwfx.is_building(f):
+                found["building"] = f
             else:
                 found["other"].append(f.name)
     return found

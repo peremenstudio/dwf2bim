@@ -11,7 +11,7 @@
     "permit": "מס. היתר"
   },
   "documents": {
-    "architecture": {"types": ["תכנית מתוקנת (אדריכלות)"], "formats": [".dwf"], "required": true},
+    "architecture": {"types": ["תכנית מתוקנת (אדריכלות)"], "formats": [".dwf", ".dwfx"], "required": true},
     "area": {"types": ["חישוב שטחים"], "formats": [".dwfx"], "required": false},
     "survey": {"types": ["מפת מדידה להיתר"], "formats": [".dwfx"], "required": false}
   },

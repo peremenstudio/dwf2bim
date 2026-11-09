@@ -16,10 +16,11 @@ import numpy as np
 from shapely.affinity import translate
 from shapely.geometry import LineString, MultiPoint, Point, Polygon
 from shapely import set_precision
+from shapely.errors import GEOSException
 from shapely.ops import polygonize, unary_union
 from shapely.validation import make_valid
 
-from .names import CONFIG_DIR, level_id
+from .names import CONFIG_DIR, clean_text, level_id
 
 _CFG = json.loads((CONFIG_DIR / "site.json").read_text(encoding="utf8"))
 FIT_LIMIT_M = 0.10
@@ -114,6 +115,41 @@ def survey_building_line(sheet, plot_ring) -> list:
     ]
     edges = [e for e in _merge_collinear(dashes, offset_tol=0.05) if math.dist(*e) >= cfg["edge_min_m"]]
     return _chain_edges(edges, True) if len(edges) >= 3 else []
+
+
+def _areal(g):
+    """Only the area of a shape. Overlays leave lines and points behind, which later overlays cannot always handle."""
+    g = make_valid(g)
+    parts = getattr(g, "geoms", [g])
+    return unary_union([p for p in parts if p.geom_type in ("Polygon", "MultiPolygon")])
+
+
+def _difference(a, b):
+    """a minus b, of their areas. Shapes that nearly touch can defeat GEOS; on millimetre precision they do not."""
+    a, b = _areal(a), _areal(b)
+    try:
+        return a.difference(b)
+    except GEOSException:
+        return set_precision(a, 0.001).difference(set_precision(b, 0.001))
+
+
+def ring_from_pieces(pieces, area, join=0.05, tolerance=0.02):
+    """The plot as one closed ring, whether drawn as one polyline (a DWF) or as many pieces (a DWFX).
+
+    The ring is the one whose area matches the element's Area within the tolerance, so a closed
+    line with something else drawn beside it still reads right. None when no ring matches.
+    """
+    rings = [list(p) for p in pieces if len(p) >= 4 and math.dist(p[0], p[-1]) < join]
+    rings += [r for r in _chain_pieces([p for p in pieces if not (len(p) >= 4 and math.dist(p[0], p[-1]) < join)], join) if len(r) >= 4]
+    best = None
+    for ring in rings:
+        if math.dist(ring[0], ring[-1]) < join:
+            ring = ring[:-1]
+        shape = Polygon(ring)
+        if len(ring) >= 3 and shape.is_valid and abs(shape.area - area) <= tolerance * area:
+            if best is None or abs(shape.area - area) < abs(Polygon(best).area - area):
+                best = drop_collinear(ring)
+    return best
 
 
 def closed_lines_only(lines) -> tuple:
@@ -622,7 +658,7 @@ class SiteBuilder:
     def property_lines(self):
         """Plot and building lines from Property elements drawn in a plan."""
         view = self._plan()
-        names = set(_CFG["building_line_names"])
+        names = {clean_text(n) for n in _CFG["building_line_names"]}
         plot, building = None, []
         seen = set()
         for el in self.ex.elements.values():
@@ -630,16 +666,15 @@ class SiteBuilder:
                 continue
             prims = self.ex.prims[el.id][view.key]
             area = _num(el.props.get("Area"))
-            if (el.props.get("Name") or "").strip() in names:
+            if clean_text(el.props.get("Name")).startswith(tuple(names)):
                 key = round(area or 0, 2), len(prims), prims[0].points[0]
                 if key not in seen:
                     seen.add(key)
                     building.append(_building_line([[view.to_m(q) for q in p.points] for p in prims if len(p.points) > 1], area, el.id))
-            elif area and area > 20 and len(prims) == 1 and len(prims[0].points) >= 4 and (plot is None or area > plot["area"]):
-                ring = [view.to_m(q) for q in prims[0].points]
-                if math.dist(ring[0], ring[-1]) < 1e-3:
-                    ring = ring[:-1]
-                plot = {"ring": [[round(a, 4), round(b, 4)] for a, b in ring], "area": area, "id": el.id}
+            elif area and area > 20 and (plot is None or area > plot["area"]):
+                ring = ring_from_pieces([[view.to_m(q) for q in p.points] for p in prims if len(p.points) > 1], area)
+                if ring:
+                    plot = {"ring": [[round(a, 4), round(b, 4)] for a, b in ring], "area": area, "id": el.id}
         return plot, building
 
     def place(self, survey_sheet):
@@ -862,7 +897,7 @@ class SiteBuilder:
                     if best is None or current[best].intersection(room).area < 0.3 * room.area:
                         continue
                     others = unary_union([v for i, v in current.items() if i != best])
-                    missing = room.difference(current[best]).difference(others)
+                    missing = _difference(_difference(room, current[best]), others)
                     if missing.area > 0.02:
                         current[best] = current[best].union(missing)
                         stats["filled_m2"] += missing.area

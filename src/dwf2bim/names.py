@@ -12,6 +12,11 @@ _LETTERS = _G["letters"]
 _MARKS = re.compile("[‎‏‪-‮֑-ׇ]")
 
 
+def clean_text(text: str | None) -> str:
+    """The text without direction marks and points, which Revit adds to some Hebrew names."""
+    return _MARKS.sub("", text or "").strip()
+
+
 def english(text: str | None) -> str:
     """Translate known phrases, then transliterate any remaining Hebrew letters."""
     if not text:

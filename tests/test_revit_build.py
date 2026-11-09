@@ -599,6 +599,31 @@ class Site(unittest.TestCase):
         assign_apartments(building)
         self.assertEqual((lower["unit_ids"]["L01"]["1"], typical["unit_ids"]["L03"]["10"], typical["unit_ids"]["L04"]["10"]), (1, 2, 3))
 
+    def test_a_difference_keeps_only_area_after_overlays_leave_lines(self):
+        from shapely.geometry import GeometryCollection, LineString, Polygon
+        from dwf2bim.site import _difference
+        square = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)])
+        mixed = GeometryCollection([Polygon([(0, 0), (2, 0), (2, 4), (0, 4)]), LineString([(0, 0), (9, 9)])])
+        self.assertAlmostEqual(_difference(square, mixed).area, 8.0)
+
+    def test_plot_drawn_in_pieces_becomes_one_ring(self):
+        from dwf2bim.site import ring_from_pieces
+        square = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        pieces = [[square[i], square[(i + 1) % 4]] for i in (2, 0, 3, 1)]
+        ring = ring_from_pieces(pieces, 100.0)
+        self.assertEqual(sorted(ring), sorted(square))
+        self.assertIsNone(ring_from_pieces(pieces, 150.0))
+        self.assertEqual(sorted(ring_from_pieces([square + [square[0]]], 100.0)), sorted(square))
+
+    def test_an_empty_level_with_a_twin_at_its_height_is_left_out(self):
+        from dwf2bim.extract import drop_empty_twin_levels
+        levels = {"02": {"z": 6.6}, "2": {"z": 6.6}, "03": {"z": 9.9}, "Top": {"z": 30.0}}
+        kept, dropped = drop_empty_twin_levels(levels, {"02": 40, "03": 12})
+        self.assertEqual(sorted(kept), ["02", "03", "Top"])
+        self.assertEqual(dropped, {"2": "02"})
+        kept, dropped = drop_empty_twin_levels({"A": {"z": 1.0}, "B": {"z": 1.0}}, {})
+        self.assertEqual((sorted(kept), dropped), (["A", "B"], {}))
+
     def test_open_building_lines_give_way_to_a_closed_one(self):
         from dwf2bim.site import closed_lines_only
         closed, opened = {"id": "c", "closed": True}, {"id": "o", "closed": False}

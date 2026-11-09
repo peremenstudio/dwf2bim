@@ -23,7 +23,7 @@ If the download does not work, put the files in the `<block>_<parcel>` folder yo
 
 | Document | Format | Needed |
 |---|---|---|
-| Corrected architectural plan | DWF | Yes |
+| Corrected architectural plan | DWF or DWFX, exported from Revit | Yes |
 | Area calculation | DWFX | No, there are no areas without it |
 | Survey map for the permit | DWFX | No, there is no site or true position without it |
 
@@ -82,6 +82,7 @@ The graph holds the full paths to this folder and to this repository, so it runs
 | `config/revit_mapping.json` | How DWF names map to your template's types |
 
 ## Known limits
-- Only Tel Aviv's archive, and only DWF exported from Revit.
+- Only Tel Aviv's archive, and only plans exported from Revit with their object data.
+- A survey that draws the plot boundary in black, not blue, does not place the model yet.
 - A parcel with several building files may mix documents. The request warning is the guard, so check it.
 - A model always needs checking against its sources. Schema validity does not show that it is right.

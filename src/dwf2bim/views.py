@@ -65,12 +65,17 @@ def split_views(sheets) -> dict:
     """Group W2D graphics into views; each X_Annotation stream joins its view X."""
     views: dict[str, View] = {}
     used: set[str] = set()
+    with_model = set()
     for sheet_index, sheet in enumerate(sheets):
         index_to_view = {}
+        # the sheet's own viewport gives the sheet's units; a DWF lists it first, a DWFX anywhere
+        sheet_upm = next((vp.units_per_mm for vp in sheet.whip.views if vp.name.startswith("Sheet:")), sheet.whip.views[0].units_per_mm if sheet.whip.views else 0)
         for i, vp in enumerate(sheet.whip.views):
             is_annotation = vp.name.endswith("_Annotation")
             base = vp.name[: -len("_Annotation")] if is_annotation else vp.name
             uid = (sheet_index, base)
+            if not is_annotation:
+                with_model.add(uid)
             if uid not in views:
                 kind = _view_kind(base)
                 key = _view_key(base, kind)
@@ -79,7 +84,7 @@ def split_views(sheets) -> dict:
                     key = f"{_view_key(base, kind)}_{n}"
                     n += 1
                 used.add(key)
-                scale = round(sheet.whip.views[0].units_per_mm / vp.units_per_mm) if vp.units_per_mm else 0
+                scale = round(sheet_upm / vp.units_per_mm) if vp.units_per_mm else 0
                 views[uid] = View(key, base, kind, vp.units_per_mm, scale, vp.contour, sheet_index)
             index_to_view[i] = (views[uid], is_annotation)
         for p in sheet.whip.primitives:
@@ -95,6 +100,15 @@ def split_views(sheets) -> dict:
                 if v.sheet == sheet_index and v.source_name.split(":", 1)[-1].strip() == el.props["View"]:
                     v.level = el.props.get("Associated Level")
                     v.orientation = el.props.get("Orientation")
+    # a view exported with only its annotation stream, as DWFX sections and elevations are, draws its model there
+    for uid, v in views.items():
+        if uid not in with_model:
+            v.prims, v.annotation = v.annotation, []
+    # some sheet sets draw the floors only as area plans, which show the same cut walls
+    planned = {v.level for v in views.values() if v.kind == "plan" and v.level and v.scale <= 100 and v.orientation != "True North"}
+    for v in views.values():
+        if v.kind == "area_plan" and v.level and v.level not in planned:
+            v.kind = "plan"
     return {v.key: v for v in views.values()}
 
 

@@ -105,8 +105,13 @@ class Extractor:
         for el in self.elements.values():
             if el.family == "Level" and el.props.get("Name") and _num(el.props.get("Elevation")) is not None:
                 levels[el.props["Name"]] = {"z": _num(el.props["Elevation"]) * self.unit, "source": "level_property"}
-        self.levels = levels
-        return levels
+        uses = collections.Counter(
+            el.props.get(key) for el in self.elements.values() if el.family != "Level" for key in LEVEL_PROPERTIES if el.props.get(key)
+        )
+        self.levels, dropped = drop_empty_twin_levels(levels, uses)
+        for name in dropped:
+            self.issues.append(f"Level {level_id(name)} left out: nothing stands on it, and level {level_id(dropped[name])} has its height.")
+        return self.levels
 
     def resolve_missing_levels(self):
         """Levels referenced by elements but absent from the sheet are measured in sections."""
@@ -1103,6 +1108,26 @@ def _polys_out(shape, tol, min_area=1e-3):
 
 STAIR_WELL_M = 0.135
 REVIT_MIN_GAP_M = 0.012
+LEVEL_PROPERTIES = ("Level", "Base Constraint", "Top Constraint", "Reference Level", "Associated Level", "Base Level", "Top Level", "Schedule Level")
+LEVEL_TWIN_M = 0.01
+
+
+def drop_empty_twin_levels(levels: dict, uses) -> tuple:
+    """Two levels at one height make an empty storey in Revit. The one nothing refers to goes, if the other is used.
+
+    Returns the levels kept, and each dropped level with the twin that stays.
+    """
+    kept, dropped = dict(levels), {}
+    for name, info in levels.items():
+        if uses.get(name):
+            continue
+        twins = [o for o, i in levels.items() if o != name and o not in dropped and abs(i["z"] - info["z"]) < LEVEL_TWIN_M and uses.get(o)]
+        if twins:
+            dropped[name] = twins[0]
+            del kept[name]
+    return kept, dropped
+
+
 REVIT_MIN_ANGLE_DEG = 3.0
 
 

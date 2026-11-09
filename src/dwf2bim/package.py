@@ -60,15 +60,21 @@ def load(path: str | Path) -> list[Sheet]:
     path = Path(path)
     with open(path, "rb") as fh:
         head = fh.read(16)
+    sheets: list[Sheet] = []
     if path.suffix.lower() == ".dwfx" or head[:2] == b"PK":
-        raise UnsupportedInput(
-            "This DWFX cannot be the building sheet: building geometry is read from a Revit DWF. "
-            "DWFX files are read as the survey map and the area plan, placed next to the DWF in a project folder."
-        )
+        from . import dwfx
+
+        try:
+            pages = dwfx.read(path)
+        except zipfile.BadZipFile as ex:
+            raise UnsupportedInput(f"{path.name} is not a DWFX package") from ex
+        for title, data, objects in pages:
+            elements, node_to_element = _parse_objects(objects) if objects else ({}, {})
+            sheets.append(Sheet(title, data, elements, node_to_element))
+        return _checked(path, sheets)
     if not head.startswith(b"(DWF V"):
         raise UnsupportedInput(f"{path.name} is not a DWF package")
 
-    sheets: list[Sheet] = []
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         manifest = z.read("manifest.xml").decode("utf8", "replace")
@@ -85,6 +91,10 @@ def load(path: str | Path) -> list[Sheet]:
                     if b"<PageObjectDefinition" in blob[:200]:
                         elements, node_to_element = _parse_objects(blob)
             sheets.append(Sheet(titles.get(folder, folder), data, elements, node_to_element))
+    return _checked(path, sheets)
+
+
+def _checked(path: Path, sheets: list) -> list:
     if not sheets:
         raise UnsupportedInput(f"{path.name} contains no 2D sheets")
     if not any(s.elements for s in sheets):

@@ -24,7 +24,11 @@ The person says where to save, and the project folder `<block>_<parcel>` is crea
 ### 1. Read the package
 Unzip the DWF and decode the W2D stream and the object XML.
 
-**Gate:** the stream decodes to `(EndOfDWF)` with no unknown opcode, and object data exists. Otherwise stop with a clear message.
+A DWFX holds the same three layers in another form: XPS paths in W2D logical units with y pointing down, a W2X list that says in drawing order which element (`Object_Node`) and view (`Viewport`) each named path belongs to, and the object XML. `dwfx.py` turns it into the primitives, views and nodes a W2D stream gives, so every later stage is the same. Its sections and elevations come with only an annotation stream, which then counts as the view's model. A sheet set whose floors are drawn only as area plans gives those plans as the floor plans.
+
+In a project folder, the download's manifest says which file is which. Without one, a DWF is the building, and a DWFX is the area plan if it holds an area table, the survey if it holds a plot boundary, and the building if it describes thousands of Revit objects.
+
+**Gate:** the stream decodes to `(EndOfDWF)` with no unknown opcode, or the W2X has no unknown record, and object data exists. Otherwise stop with a clear message.
 
 ### 2. Split into views
 Each `(Viewport)` block starts a view. `X_Annotation` is merged into view `X`, as its annotation layer.

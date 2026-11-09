@@ -25,6 +25,10 @@ class ChoosingDocuments(unittest.TestCase):
                 {"type": AREA, "date": "4/3/2024", "url": "c"}, {"type": PLAN, "date": "1/1/2026", "url": "d"}, {"type": AREA, "date": "", "url": "e"}]
         self.assertEqual([r["url"] for r in fetch.candidates(rows, "area")], ["c", "b", "a", "e"])
 
+    def test_a_document_listed_on_two_pages_counts_once(self):
+        rows = [{"url": "a", "date": "1/1/2024"}, {"url": "b"}, {"url": "a", "date": "1/1/2024"}]
+        self.assertEqual([r["url"] for r in fetch.unique_rows(rows)], ["a", "b"])
+
     def test_documents_of_different_requests_are_flagged(self):
         chosen = {"architecture": {"online_request": "28078"}, "area": {"online_request": "28078"}, "survey": {"online_request": "21683"}}
         warnings = fetch.request_warnings(chosen)
@@ -186,6 +190,18 @@ class PageInHebrew(unittest.TestCase):
         from dwf2bim import ui
         for role in fetch._CFG["documents"]:
             self.assertIn(f"{role}: '", ui.PAGE)
+
+
+class StoppedRun(unittest.TestCase):
+    def test_a_stopped_run_still_lists_what_was_downloaded(self):
+        from dwf2bim import ui
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / fetch.MANIFEST).write_text(json.dumps({"documents": {"survey": {"file": "s.dwfx"}}, "missing": ["architecture"]}), encoding="utf8")
+            result = ui.partial_result(Path(folder))
+            self.assertTrue(result["partial"])
+            self.assertEqual(result["missing"], ["architecture"])
+            self.assertIn("survey", result["documents"])
+            self.assertIsNone(ui.partial_result(Path(folder) / "none"))
 
 
 class LocalPageIsLocal(unittest.TestCase):
