@@ -218,6 +218,7 @@ if IN_REVIT:
         BasePoint,
         BoundingBoxIntersectsFilter,
         BoundingBoxXYZ,
+        CurveArray,
         DWGImportOptions,
         ImportInstance,
         ImportPlacement,
@@ -1001,7 +1002,30 @@ class Builder:
                 self._stamp(floor, rec)
         if first is None:
             raise problem or ValueError("no outline")
+        for ring in rec["geometry"].get("shafts") or []:
+            try:
+                self._make_shaft(ring, rec, level)
+            except Exception as ex:
+                self._section("floor").setdefault("shafts_failed", []).append({"id": rec["id"], "error": str(ex)[:160]})
         return first
+
+    def _make_shaft(self, ring, rec, level):
+        """A shaft opening through this storey's floor where its outline has a hole: a stair or a lift."""
+        pts = clean_ring(ring)
+        if len(pts) < 3:
+            return
+        profile = CurveArray()
+        for i, a in enumerate(pts):
+            b = pts[(i + 1) % len(pts)]
+            profile.Append(Line.CreateBound(XYZ(ft(a[0]), ft(a[1]), level.Elevation), XYZ(ft(b[0]), ft(b[1]), level.Elevation)))
+        above = sorted((l for l in self.levels.values() if l.Elevation > level.Elevation + 0.01), key=lambda l: l.Elevation)
+        top = above[0] if above else level
+        shaft = self.doc.Create.NewOpening(level, top, profile)
+        # from just under this floor to just over it, so it cuts this storey's floor and no other
+        self._set_first(shaft, {"keys": [BuiltInParameter.WALL_BASE_OFFSET, "Base Offset"], "value": rec["z0"] - level.Elevation * FT - 0.05})
+        self._set_first(shaft, {"keys": [BuiltInParameter.WALL_TOP_OFFSET, "Top Offset"], "value": (level.Elevation - top.Elevation) * FT + 0.05})
+        self._stamp(shaft, rec)
+        self._section("floor")["shafts"] = self._section("floor").get("shafts", 0) + 1
 
     def _set_first(self, element, values):
         """Set the first writable parameter found, by built-in id or by name."""
@@ -1101,19 +1125,27 @@ class Builder:
             if len(group) == 1 and self._wall_is_cut(wall, group[0]) is False:
                 suspects.append(group[0])
 
-        def place_again():
-            for rec in suspects:
-                self.doc.Delete(self.created[rec["id"]])
-                instance = self.make_opening(rec)
-                self._stamp(instance, rec)
-                self.created[rec["id"]] = instance.Id
+        def place_again(rec):
+            old = self.doc.GetElement(self.created[rec["id"]])
+            if old is not None:
+                self.doc.Delete(old.Id)
+            instance = self.make_opening(rec)
+            self._stamp(instance, rec)
+            self.created[rec["id"]] = instance.Id
 
-        if suspects:
-            self._transact("DWF repair openings", place_again)
+        # one at a time: Revit may already have removed an opening, and that must not stop the others
+        for rec in suspects:
+            try:
+                self._transact("DWF repair opening", lambda: place_again(rec))
+            except Exception as ex:
+                self.log.setdefault("openings_not_placed_again", []).append({"id": rec["id"], "error": str(ex)[:160]})
         still = []
         for rec in suspects:
             wall = self.doc.GetElement(self.created[rec["host"]])
-            if self._wall_is_cut(wall, rec) is False:
+            instance = self.doc.GetElement(self.created[rec["id"]]) if rec["id"] in self.created else None
+            if wall is None or instance is None:
+                still.append({"id": rec["id"], "type": rec.get("type"), "level": rec.get("level"), "missing": True})
+            elif self._wall_is_cut(wall, rec) is False:
                 still.append({"id": rec["id"], "type": rec.get("type"), "level": rec.get("level")})
         self.log["openings_checked"] = sum(len(g) for g in by_host.values())
         self.log["openings_replaced"] = len(suspects)
@@ -1264,7 +1296,7 @@ class Builder:
         categories = [getattr(BuiltInCategory, name) for name in (
             "OST_Doors", "OST_Windows", "OST_StairsRailing", "OST_Stairs", "OST_Floors", "OST_Roofs", "OST_Ceilings", "OST_Columns",
             "OST_StructuralColumns", "OST_StructuralFraming", "OST_Furniture", "OST_FurnitureSystems", "OST_Casework", "OST_PlumbingFixtures",
-            "OST_GenericModel", "OST_CurtainWallMullions", "OST_CurtainWallPanels", "OST_Rooms", "OST_Walls")]
+            "OST_GenericModel", "OST_CurtainWallMullions", "OST_CurtainWallPanels", "OST_Rooms", "OST_ShaftOpening", "OST_Walls")]
 
         def work():
             count = 0
@@ -1412,14 +1444,20 @@ class Builder:
         self._transact("DWF opening types", lambda: self.prepare_opening_types(doors + windows))
         self.process("door", doors, self.make_opening)
         self.process("window", windows, self.make_opening)
-        self.repair_cuts(doors + windows)
+        try:
+            self.repair_cuts(doors + windows)
+        except Exception as ex:
+            self.log["errors"].append("repair openings: {}".format(ex))
         # joins come after the doors and windows: a window placed in a joined wall may not cut it
         try:
             self.join_walls_and_floors()
         except Exception as ex:
             self.log["errors"].append("joins: {}".format(ex))
         self.process("railing", by_class.pop("railing", []), self.make_railing)
-        self.build_stairs(by_class.pop("stair", []))
+        try:
+            self.build_stairs(by_class.pop("stair", []))
+        except Exception as ex:
+            self.log["errors"].append("stairs: {}".format(ex))
         for cls, records in sorted(by_class.items()):
             self.process(cls, records, self.make_mass_floor)
         try:

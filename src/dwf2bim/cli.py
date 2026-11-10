@@ -111,7 +111,10 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
         if v.prims:
             qa.render_view(v, out / "views" / f"{v.key}.png")
             if not skip_dxf and v.kind in ("plan", "section", "elevation"):
-                qa.export_dxf(v, out / "views" / f"{v.key}.dxf")
+                qa.export_dxf(v, out / "views" / f"{v.key}.dxf", building.get("contours", {}).get(level_id(v.level)) if v.level else None)
+    if not skip_dxf:
+        for lid, outline in building.get("contours", {}).items():
+            qa.export_contours_dxf(outline, out / "views" / f"CONTOUR_{lid}.dxf")
 
     _log("Stage 5/6 write IFC")
     ifc_path = out / f"{source.stem}.ifc"
@@ -135,6 +138,9 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     for level, v in ex.plans.items():
         if v.offset is not None:
             qa.overlay_plan(v, building, level_id(level), out / "qa" / f"overlay_{level_id(level)}.png")
+    for lid, outline in building.get("contours", {}).items():
+        plan = next((v for name, v in ex.plans.items() if level_id(name) == lid and v.offset is not None), None)
+        qa.render_contours(plan, outline, out / "qa" / f"contour_{lid}.png")
     if building.get("site", {}).get("plot"):
         qa.render_site(building, out / "qa" / "site_plan.png")
     for floor in building.get("areas", []):

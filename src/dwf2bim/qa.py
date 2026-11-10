@@ -45,7 +45,32 @@ def render_view(view, path, width=2400):
     im.save(path)
 
 
-def export_dxf(view, path):
+def _contour_layers(doc, msp, contours):
+    """The storey's floor outlines as closed red polylines, the main floor and the balconies on their own layers."""
+    from .site import _CFG
+
+    spec = _CFG["contours"]
+    for key in ("main", "balcony"):
+        name = spec["dxf_layers"][key]
+        if name not in doc.layers:
+            doc.layers.add(name, color=spec["dxf_color"])
+    groups = [("main", [contours["main"]])] + [("balcony", [b]) for b in contours["balconies"]]
+    for key, polys in groups:
+        for poly_set in polys:
+            for poly in poly_set:
+                for ring in [poly["outer"]] + list(poly.get("holes") or []):
+                    msp.add_lwpolyline([tuple(q) for q in ring], close=True, dxfattribs={"layer": spec["dxf_layers"][key], "color": spec["dxf_color"]})
+
+
+def export_contours_dxf(contours, path):
+    """One storey's floor outlines alone, in model coordinates."""
+    doc = ezdxf.new("R2018", setup=False)
+    doc.units = ezdxf.units.M
+    _contour_layers(doc, doc.modelspace(), contours)
+    doc.saveas(path)
+
+
+def export_dxf(view, path, contours=None):
     """One DXF per view, in metres at model scale, with its annotation and text.
 
     A plan aligned to the others is in the model's coordinates, so Revit can place it origin to
@@ -77,6 +102,8 @@ def export_dxf(view, path):
                 msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
             elif p.kind == "circle" and p.radius:
                 msp.add_circle(pts[0], p.radius[0] * k, dxfattribs={"layer": layer})
+    if contours and in_model_frame(view):
+        _contour_layers(doc, msp, contours)
     doc.saveas(path)
 
 
@@ -119,6 +146,32 @@ def overlay_plan(view, building, level, path, width=2400):
         col = (230, 40, 40) if rec.get("host") is None else (200, 50, 180)
         r = 5
         d.ellipse((c[0] - r, c[1] - r, c[0] + r, c[1] + r), outline=col, width=2)
+    im.save(path)
+
+
+def render_contours(view, outline, path, width=2400):
+    """The storey's plan in grey, its main floor outline in red and its balconies in orange."""
+    pts = [q for poly in outline["main"] for q in poly["outer"]] + [q for b in outline["balconies"] for poly in b for q in poly["outer"]]
+    if not pts:
+        return
+    x0, x1 = min(p[0] for p in pts) - 2, max(p[0] for p in pts) + 2
+    y0, y1 = min(p[1] for p in pts) - 2, max(p[1] for p in pts) + 2
+    k = width / (x1 - x0)
+    im = Image.new("RGB", (width, int((y1 - y0) * k) + 1), "white")
+    d = ImageDraw.Draw(im)
+
+    def tr(q):
+        return ((q[0] - x0) * k, (y1 - q[1]) * k)
+
+    if view is not None:
+        for p in view.prims:
+            if p.kind != "text" and len(p.points) > 1:
+                d.line([tr(view.to_m(q)) for q in p.points], fill=(200, 200, 200))
+    for colour, polys in [((230, 0, 0), outline["main"])] + [((255, 140, 0), b) for b in outline["balconies"]]:
+        for poly in polys:
+            for ring in [poly["outer"]] + list(poly.get("holes") or []):
+                r = [tr(q) for q in ring]
+                d.line(r + [r[0]], fill=colour, width=4)
     im.save(path)
 
 
@@ -512,17 +565,19 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
                 f"- Walls raised to start at their level: {rules['walls_raised_to_level']}. Levels kept as drawn: {', '.join(rules['levels_kept_as_drawn'])}",
                 f"- Walls run up to the level above, to meet the wall there: {rules['walls_raised_to_level_above']}",
                 f"- Walls merged into the wall they continue: {rules['walls_merged_into_others']}",
+                f"- Wall pieces joined along their line: {rules.get('walls_joined_along_their_line', 0)}, of which took another type: {len(rules.get('walls_that_took_another_type', []))}; shelter walls kept apart: {rules.get('shelter_walls_kept_apart', 0)}",
                 f"- Main slabs extended to the outer face of the exterior walls' core: {rules['slabs_extended_to_wall_core']}",
                 f"- Floors trimmed where they overlapped a stronger floor: {rules['floors_trimmed']}",
                 f"- Floors removed as covered by another: {len(rules['floors_removed_as_covered'])}",
                 f"- Walls moved to stand on the wall below (inferred): {len(rules.get('walls_aligned_to_wall_below', []))}",
+                f"- Walls left with no length after the walls they meet moved, so not built: {[r['id'] for r in rules.get('walls_left_without_length', [])]}",
                 f"- Curved walls built from arcs: {rules.get('curved_walls', 0)}, in {rules.get('curved_wall_pieces', 0)} pieces",
                 f"- Exterior walls, to get exterior plaster in Revit: {rules['exterior_walls']} (curved walls not marked: {rules['curved_walls_not_marked']}). Ground level walls get no plaster.",
                 f"- Ground floors added inside the plot (inferred): {len(rules.get('ground_floors_added', []))}, "
-                f"{round(sum(r['area_m2'] for r in rules.get('ground_floors_added', [])), 1)} m2. Left open: {len(rules.get('ground_left_open', []))}", ""]
-        if rules.get("ground_left_open"):
-            out += ["| Ground left open at | Area m2 | Why |", "|---|---:|---|"]
-            out += [f"| {r['where']} | {r.get('area_m2', '')} | {r['reason']} |" for r in rules["ground_left_open"]]
+                f"{round(sum(r['area_m2'] for r in rules.get('ground_floors_added', [])), 1)} m2. Only stairs stay open.", ""]
+        if rules.get("ground_filled_with_care"):
+            out += ["Ground floors filled where the drawing has none, to check:", "", "| Floor | At | Area m2 | Why |", "|---|---|---:|---|"]
+            out += [f"| {r['id']} | {r['where']} | {r['area_m2']} | {r['reason']} |" for r in rules["ground_filled_with_care"]]
             out.append("")
         moved = [r for r in rules.get("walls_aligned_to_wall_below", []) if abs(r["moved_m"]) >= 0.3]
         if moved:
@@ -533,6 +588,15 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
             out += ["| Floor | Level | Type | Area m2 |", "|---|---|---|---:|"]
             out += [f"| {r['id']} | {r['level']} | {r['type']} | {r['area_m2']} |" for r in rules["floors_removed_as_covered"]]
             out.append("")
+    outlines = (b.get("modelling") or {}).get("floor_contours")
+    if outlines and outlines.get("storeys"):
+        out += ["## Floor outlines", "",
+                "Each storey's main floor and balconies are outlined first, and its floors are built from the outlines. "
+                "See `qa/contour_<level>.png` (main floor red, balconies orange) and the layers in the plan DXFs and `views/CONTOUR_<level>.dxf`.", "",
+                "| Level | Main floor m2 | Shafts | Balconies | Balconies m2 | From | Drawn floors joined into the main floor |", "|---|---:|---:|---:|---:|---|---:|"]
+        out += [f"| {x['level']} | {x['main_m2']} | {x['shafts']} | {x['balconies']} | {x['balconies_m2']} | {x['from']} | {x['floors_joined_into_it']} |"
+                for x in outlines["storeys"]]
+        out += ["", f"Drawn floors replaced by the outlines: {len(outlines['floors_replaced'])}", ""]
     if b.get("sections"):
         out += ["## Section lines", "", "| Section | Drawing | From | To | Looks | Side from |", "|---|---|---|---|---|---|"]
         out += [f"| {x['name']} | {x['view']} | {x['p0']} | {x['p1']} | {x['look']} | {x['look_source']} |" for x in b["sections"]]

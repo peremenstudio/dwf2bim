@@ -46,6 +46,25 @@ class WallsOverWalls(unittest.TestCase):
         self.assertAlmostEqual(b["elements"][1]["geometry"]["p0"][1], 0.1)
 
 
+class WallLines(unittest.TestCase):
+    def test_pieces_of_one_line_become_one_wall_but_a_shelter_wall_stays(self):
+        a = wall("a", "U", (0, 0), (6, 0), width=0.27)
+        b = wall("b", "U", (6.2, -0.055), (9, -0.055), width=0.38)  # thicker, flush on the north face, 20 cm on
+        c = wall("c", "U", (9, 0), (12, 0), width=0.27)
+        c["source_type"] = "MMD 36"
+        for w in (a, b, c):
+            w["z0"], w["z1"] = 3.0, 6.0
+        b["source_type"] = "EXT 38"
+        bld = {"levels": {"U": {"z": 3.0}}, "elements": [a, b, c], "openings": [{"id": "o", "host": "b", "center": [7.0, -0.055]}], "areas": []}
+        report = conventions.merge_wall_lines(bld)
+        ids = sorted(r["id"] for r in bld["elements"])
+        self.assertEqual(ids, ["a", "c"])
+        self.assertAlmostEqual(a["geometry"]["p1"][0], 9.0)
+        self.assertEqual(bld["openings"][0]["host"], "a")
+        self.assertAlmostEqual(bld["openings"][0]["center"][1], 0.0)
+        self.assertEqual(report["walls_that_took_another_type"][0]["type"], "EXT 38")
+
+
 class Envelope(unittest.TestCase):
     def test_a_recess_with_a_slab_but_open_to_the_air_is_outside(self):
         # a 10 x 10 storey whose slab covers a 2 m recess in its north side, walled on three sides
@@ -96,7 +115,7 @@ class Envelope(unittest.TestCase):
 
 
 class GroundFloors(unittest.TestCase):
-    def test_a_gap_inside_the_plot_continues_its_neighbour_and_a_walled_shaft_stays_open(self):
+    def test_every_gap_in_the_plot_gets_a_floor_and_a_walled_one_is_listed(self):
         shaft = [wall("a", "G", (2, 6), (4, 6)), wall("b", "G", (4, 6), (4, 8)), wall("c", "G", (4, 8), (2, 8)), wall("d", "G", (2, 8), (2, 6))]
         b = {"levels": {"G": {"z": 0.0}},
              "site": {"plot": {"ring": [[0, 0], [10, 0], [10, 10], [0, 10]]}},
@@ -104,21 +123,18 @@ class GroundFloors(unittest.TestCase):
                           floor("h", "G", [(0, 5), (10, 5), (10, 10), (8, 10), (8, 5.5), (0, 5.5)])] + shaft,
              "unresolved": []}
         report = conventions.fill_ground_floors(b)
-        added = report["ground_floors_added"]
-        self.assertEqual(len(added), 1)
-        fill = b["elements"][-1]
-        self.assertEqual(fill["cloned_from"], "h")
-        self.assertEqual(fill["z1"], 0.0)
-        self.assertTrue(any(x["reason"] == "closed by walls" for x in report["ground_left_open"]))
+        self.assertEqual(len(report["ground_floors_added"]), 2)  # the open gap, and the walled one too
+        self.assertEqual(report["ground_floors_added"][0]["continues"], "h")
+        self.assertTrue(any(x["reason"] == "closed by walls" for x in report["ground_filled_with_care"]))
 
-    def test_the_place_of_an_unbuilt_ramp_stays_open(self):
+    def test_the_place_of_an_unbuilt_ramp_is_floored_and_listed(self):
         b = {"levels": {"G": {"z": 0.0}},
              "site": {"plot": {"ring": [[0, 0], [10, 0], [10, 10], [0, 10]]}},
              "elements": [floor("f", "G", [(0, 0), (10, 0), (10, 5), (0, 5)])],
              "unresolved": [{"id": "r", "class": "floor", "type": "Ramp", "level": "G", "plan_outline": [[0, 5], [10, 5], [10, 10], [0, 10]]}]}
         report = conventions.fill_ground_floors(b)
-        self.assertEqual(report["ground_floors_added"], [])
-        self.assertEqual(report["ground_left_open"][0]["where"], "r")
+        self.assertEqual(len(report["ground_floors_added"]), 1)
+        self.assertIn("r", report["ground_filled_with_care"][0]["reason"])
 
 
 class SlabAtTheCore(unittest.TestCase):

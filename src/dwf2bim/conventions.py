@@ -130,6 +130,97 @@ def merge_wall_runs(building) -> dict:
     return {"walls_merged_into_others": len(absorbed)}
 
 
+def _shelter_walls(building):
+    """Ids of walls of a shelter: in the area plan's shelter-wall cells, where the plan sits well, or named so."""
+    words = [w.lower() for w in RULES["shelter_wall_words"]]
+    codes = set(_CFG["apartment_shelter_wall_codes"])
+    cells = {}
+    for a in building.get("areas", []):
+        if a.get("walls_inside_share", 0) < RULES["wall_line_trusted_area_fit"]:
+            continue
+        for lid in a["levels"]:
+            cells.setdefault(lid, []).extend(make_valid(Polygon(c["ring"])) for c in a["cells"] if c["c"] in codes)
+    out = set()
+    for rec in building["elements"]:
+        if rec["class"] != "wall":
+            continue
+        if any(w in clean_text(rec.get("source_type")).lower() for w in words):
+            out.add(rec["id"])
+            continue
+        g = rec["geometry"]
+        if cells.get(rec["level"]) and g.get("p0"):
+            body = LineString([g["p0"], g["p1"]]).buffer(g["width"] / 2, cap_style=2)
+            if body.area and unary_union(cells[rec["level"]]).intersection(body).area >= 0.5 * body.area:
+                out.add(rec["id"])
+    return out
+
+
+def merge_wall_lines(building) -> dict:
+    """Walls that carry on along one line are one wall, whatever type each piece was drawn with.
+
+    Drawings change a wall's type along its length where nothing changes in the building. Pieces on
+    one line, touching or a short gap apart, at the same height and with one face flush, become the
+    longer piece; their doors and windows move to it. A shelter's walls are a real change and stay.
+    """
+    gap, height = RULES["wall_line_gap_m"], RULES["wall_line_height_m"]
+    shelter = _shelter_walls(building)
+    walls = _axis_walls(building)
+    absorbed, changed = {}, []
+    for lid, level_walls in walls.items():
+        pool = sorted((w for w in level_walls if w["id"] not in shelter), key=lambda w: -math.dist(w["geometry"]["p0"], w["geometry"]["p1"]))
+        for a in pool:
+            if a["id"] in absorbed:
+                continue
+            grew = True
+            while grew:
+                grew = False
+                g = a["geometry"]
+                u = _direction(g)
+                n = (-u[1], u[0])
+                length = math.dist(g["p0"], g["p1"])
+                for b in pool:
+                    if b is a or b["id"] in absorbed:
+                        continue
+                    h = b["geometry"]
+                    v = _direction(h)
+                    if v is None or abs(u[0] * v[1] - u[1] * v[0]) > 0.02:
+                        continue
+                    if abs(a["z0"] - b["z0"]) > height or abs(a["z1"] - b["z1"]) > height:
+                        continue
+                    offs = [(q[0] - g["p0"][0]) * n[0] + (q[1] - g["p0"][1]) * n[1] for q in (h["p0"], h["p1"])]
+                    off = sum(offs) / 2
+                    # axis on axis, or one face on the other's face
+                    if min(abs(off), abs(abs(off) - abs(h["width"] - g["width"]) / 2)) > 0.015 or abs(offs[0] - offs[1]) > 0.02:
+                        continue
+                    ts = sorted((q[0] - g["p0"][0]) * u[0] + (q[1] - g["p0"][1]) * u[1] for q in (h["p0"], h["p1"]))
+                    if ts[0] > length + gap or ts[1] < -gap:
+                        continue
+                    lo, hi = min(0.0, ts[0]), max(length, ts[1])
+                    p0 = g["p0"]
+                    g["p0"] = [round(p0[0] + u[0] * lo, 4), round(p0[1] + u[1] * lo, 4)]
+                    g["p1"] = [round(p0[0] + u[0] * hi, 4), round(p0[1] + u[1] * hi, 4)]
+                    absorbed[b["id"]] = a["id"]
+                    a.setdefault("merged_from", []).append(b["id"])
+                    if b.get("source_type") != a.get("source_type") or abs(h["width"] - g["width"]) > 0.003:
+                        changed.append({"id": b["id"], "into": a["id"], "level": lid, "type": b.get("source_type"), "now": a.get("source_type")})
+                    grew = True
+                    break
+    by_id = {r["id"]: r for r in building["elements"]}
+    for o in building.get("openings", []):
+        host = o.get("host")
+        if host in absorbed:
+            while host in absorbed:
+                host = absorbed[host]
+            o["host"] = host
+            g = by_id[host]["geometry"]
+            u = _direction(g)
+            if o.get("center"):
+                t = (o["center"][0] - g["p0"][0]) * u[0] + (o["center"][1] - g["p0"][1]) * u[1]
+                o["center"] = [round(g["p0"][0] + u[0] * t, 4), round(g["p0"][1] + u[1] * t, 4)]
+    building["elements"] = [r for r in building["elements"] if r["id"] not in absorbed]
+    return {"walls_joined_along_their_line": len(absorbed), "walls_that_took_another_type": changed, "shelter_walls_kept_apart": len(shelter)}
+
+
 def _axis_walls(building):
     by_level = defaultdict(list)
     for rec in building["elements"]:
@@ -147,12 +238,16 @@ def _alignment(rec, below, limit, min_overlap):
     """
     g = rec["geometry"]
     u = _direction(g)
+    if u is None:
+        return None
     n = (-u[1], u[0])
     length = math.dist(g["p0"], g["p1"])
     faces, axes = [], []
     for other in below:
         h = other["geometry"]
         v = _direction(h)
+        if v is None:
+            continue
         if abs(u[0] * v[1] - u[1] * v[0]) > 0.02:
             continue
         rel = [(q[0] - g["p0"][0], q[1] - g["p0"][1]) for q in (h["p0"], h["p1"])]
@@ -191,6 +286,8 @@ def _move_wall(rec, shift, neighbours, openings):
             continue
         h = other["geometry"]
         v = _direction(h)
+        if v is None:
+            continue  # shrunk to nothing by an earlier move
         across = v[0] * n[0] + v[1] * n[1]
         if abs(across) < 0.3:
             continue  # parallel: it continues the wall, and is aligned on its own
@@ -225,7 +322,12 @@ def align_walls_to_below(building) -> dict:
                 _move_wall(rec, shift, walls[above], building.get("openings", []))
                 rec["geometry"]["aligned_to_wall_below_m"] = round(shift, 3)
                 moved.append({"id": rec["id"], "level": above, "moved_m": round(shift, 3)})
-    return {"walls_aligned_to_wall_below": moved}
+    # a short wall whose two ends followed walls that moved toward each other is left with no length
+    gone = [r for r in building["elements"] if r["class"] == "wall" and r["geometry"].get("kind") == "axis" and r["geometry"].get("p0")
+            and math.dist(r["geometry"]["p0"], r["geometry"]["p1"]) < 0.02]
+    building["elements"] = [r for r in building["elements"] if r not in gone]
+    return {"walls_aligned_to_wall_below": moved,
+            "walls_left_without_length": [{"id": r["id"], "level": r["level"], "type": r.get("source_type")} for r in gone]}
 
 
 def _wall_shapes(walls, grow=0.0):
@@ -298,15 +400,17 @@ def curved_walls_as_arcs(building) -> dict:
 def fill_ground_floors(building) -> dict:
     """Inside the plot, the ground level has a floor everywhere: each gap between its floors gets one.
 
-    A gap continues the floor it shares the longest edge with, at that floor's height and type.
-    A gap mostly closed by walls, such as a shaft, stays open, and so does the place of an
-    element that could not be built, such as a ramp; those are listed.
+    A gap continues the floor it shares the longest edge with, at that floor's height and type, or
+    else the nearest floor. Only the stairs stay open. A gap closed by walls, or where an element
+    could not be built, such as a ramp, is filled too and listed, as the floor there is inferred.
     """
     plot = ((building.get("site") or {}).get("plot") or {}).get("ring") or []
     ground = next((lid for lid, info in building["levels"].items() if abs(info["z"]) < 0.01), None)
     if len(plot) < 3 or ground is None:
-        return {"ground_floors_added": [], "ground_left_open": []}
+        return {"ground_floors_added": [], "ground_filled_with_care": []}
     floors = [r for r in building["elements"] if r["class"] == "floor" and r["level"] == ground and r["geometry"].get("polygons")]
+    if not floors:
+        return {"ground_floors_added": [], "ground_filled_with_care": []}
     walls = [r for r in building["elements"] if r["class"] == "wall" and r["level"] == ground]
     stairs = [make_valid(Polygon(t["polygon"])) for r in building["elements"] if r["class"] == "stair" and r["level"] == ground
               for t in r["geometry"].get("treads") or [] if len(t.get("polygon") or []) >= 3]
@@ -315,31 +419,29 @@ def fill_ground_floors(building) -> dict:
     shapes = {r["id"]: _shape(r) for r in floors}
     wall_area = unary_union(_wall_shapes(walls)) if walls else Polygon()
     built = unary_union([s for s in shapes.values() if s is not None] + [wall_area] + stairs)
-    open_ground = _difference(make_valid(Polygon(plot)), built)
-    gaps = _difference(open_ground, unary_union([s for _, s in unbuilt])) if unbuilt else open_ground
-    added, left = [], []
-    for u, s in unbuilt:
-        if s.intersection(open_ground).area > RULES["ground_fill_min_m2"]:
-            left.append({"where": u["id"], "reason": "an element not built stands here: {} {}".format(u.get("class"), u.get("type"))})
+    gaps = _difference(make_valid(Polygon(plot)), built)
+    added, care = [], []
     pieces = [g for g in getattr(gaps, "geoms", [gaps]) if g.geom_type == "Polygon" and g.area >= RULES["ground_fill_min_m2"]]
     for n, gap in enumerate(pieces):
         edge = gap.exterior
         walled = edge.intersection(wall_area.buffer(0.02)).length / edge.length if edge.length else 0.0
         where = [round(c, 2) for c in gap.representative_point().coords[0]]
-        if walled >= RULES["ground_fill_walled_share"]:
-            left.append({"where": where, "area_m2": round(gap.area, 2), "reason": "closed by walls"})
-            continue
         shared = sorted(((edge.intersection(s.buffer(0.02)).length, rid) for rid, s in shapes.items() if s is not None), reverse=True)
-        if not shared or shared[0][0] <= 0:
-            left.append({"where": where, "area_m2": round(gap.area, 2), "reason": "no floor next to it"})
-            continue
-        source = next(r for r in floors if r["id"] == shared[0][1])
+        if shared and shared[0][0] > 0:
+            source_id = shared[0][1]
+        else:
+            source_id = min((rid for rid, s in shapes.items() if s is not None), key=lambda rid: shapes[rid].distance(gap))
+        source = next(r for r in floors if r["id"] == source_id)
         rec = {k: v for k, v in source.items() if k not in ("geometry", "ifc_guid", "id")}
         rec.update(id="{}_fill{}".format(source["id"], n), ifc_guid=None, height_source="inferred", cloned_from=source["id"],
                    geometry={"kind": "extrusion", "polygons": _slab_outline(gap), "source": "ground_fill", "slab_role": "ground_fill"})
         building["elements"].append(rec)
         added.append({"id": rec["id"], "continues": source["id"], "type": source.get("source_type"), "area_m2": round(gap.area, 2)})
-    return {"ground_floors_added": added, "ground_left_open": left}
+        over = [u["id"] for u, s in unbuilt if s.intersection(gap).area > RULES["ground_fill_min_m2"]]
+        if over or walled >= RULES["ground_fill_walled_share"]:
+            care.append({"where": where, "area_m2": round(gap.area, 2), "id": rec["id"],
+                         "reason": "over elements not built: {}".format(", ".join(over)) if over else "closed by walls"})
+    return {"ground_floors_added": added, "ground_filled_with_care": care}
 
 
 def unify_ground_floors(building) -> dict:
@@ -424,6 +526,8 @@ def extend_slabs_to_wall_core(building) -> dict:
     for rec in building["elements"]:
         if rec["class"] != "floor" or rec["geometry"].get("slab_role") != "main" or rec["level"] not in walls_by_level:
             continue
+        if rec["geometry"].get("from_contour"):
+            continue  # the outline already ends at the walls' core
         slab = _shape(rec)
         if slab is None:
             continue
@@ -575,10 +679,15 @@ def remove_floor_overlaps(building) -> dict:
     its own, and of equals the larger. A floor left with almost nothing is removed and listed.
     """
     rank = {"balcony": 0, "main": 1}
+
+    def strength(rec):
+        # a floor built from the storey's outline is never cut by another
+        return -1 if rec["geometry"].get("from_contour") else rank.get(rec["geometry"].get("slab_role"), 2)
+
     floors = [r for r in building["elements"] if r["class"] == "floor" and r["geometry"].get("polygons")]
     shapes = {r["id"]: _shape(r) for r in floors}
     order = sorted((r for r in floors if shapes[r["id"]] is not None),
-                   key=lambda r: (rank.get(r["geometry"].get("slab_role"), 2), -shapes[r["id"]].area))
+                   key=lambda r: (strength(r), -shapes[r["id"]].area))
     placed, trimmed, removed = [], 0, []
     for rec in order:
         shape = shapes[rec["id"]]
@@ -705,11 +814,14 @@ def apply(building) -> dict:
     report.update(walls_from_level(building))
     report.update(walls_to_level_above(building))
     report.update(merge_wall_runs(building))
+    report.update(merge_wall_lines(building))
     report.update(curtain_wall_infill(building))
     report.update(curved_walls_as_arcs(building))
     mark_exterior_walls(building)  # first, so exterior walls align face to face
     report.update(align_walls_to_below(building))
     report.update(mark_exterior_walls(building))
+    from . import contours  # imported here: it reads the site settings this module also reads
+    report["floor_contours"] = contours.apply(building)
     report.update(extend_slabs_to_wall_core(building))
     report.update(remove_floor_overlaps(building))
     report.update(fill_ground_floors(building))

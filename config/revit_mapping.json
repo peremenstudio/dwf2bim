@@ -50,7 +50,21 @@
     "E_קיפ": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
     "E_קיפ עם תריס": {"family": "הזזה דו כנפי + ארגז תריס", "type_format": "{w}w/{h}h"},
     "E_ויטרינה": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
-    "E_ויטרינה עם תריס": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"}
+    "E_ויטרינה עם תריס": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
+
+    "RvZ_VitrinaS_Double": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
+    "RvZ_VitrinaS_Quatro": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
+    "RvZ_VitrinaS_Single": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
+    "RvZ_WinS_Single": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
+    "RvZ_WinS_Double": {"family": "הזזה דו כנפי", "type_format": "{w}w/{h}h"},
+    "RvZ_WinS_Triple": {"family": "הזזה תלת כנפי", "type_format": "{w}w/{h}h"},
+    "MP_WN - MMD_Single": {"family": "חלון ממ\"ד", "type_format": "{w}w/{h}h"},
+    "MP_DR - MMD_Swing": {"family": "דלת לממד", "type_format": "{w}w/{h}h"},
+    "MP_DR - Single Wing": {"family": "עץ - ציר", "type_format": "{w}/{h}"},
+    "MP_DR - Service Cabinet": {"family": "עץ - ציר", "type_format": "{w}/{h}"},
+    "MP_DR - Service Cabinet X1": {"family": "עץ - ציר", "type_format": "{w}/{h}"},
+    "MP_DR - Service Cabinet X2": {"family": "עץ - דו כנפית", "type_format": "{w}/{h}"},
+    "MP_DR - מסגרות שירות דו-כנפית": {"family": "עץ - דו כנפית", "type_format": "{w}/{h}"}
   },
   "finished_floor": {
     "_comment": "A floor with fill: concrete as its name says, the template's tiles on top, fill for the rest.",

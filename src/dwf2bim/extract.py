@@ -925,7 +925,8 @@ class Extractor:
                 continue
             src = min(candidates, key=lambda r: abs(self.levels.get(_level_of(self.elements[r["id"]]), {"z": 1e9})["z"] - lv["z"]))
             used[lid].add(src["id"])
-            rec = self._record(el, cls, src["geometry"], heights, level)
+            # its own copy: a later rule that moves one storey's wall or reshapes its floor must not move the other's
+            rec = self._record(el, cls, copy.deepcopy(src["geometry"]), heights, level)
             rec["cloned_from"] = src["id"]
             built[el.id] = rec
 
