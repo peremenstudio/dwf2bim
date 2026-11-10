@@ -51,5 +51,24 @@
     "E_קיפ עם תריס": {"family": "הזזה דו כנפי + ארגז תריס", "type_format": "{w}w/{h}h"},
     "E_ויטרינה": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"},
     "E_ויטרינה עם תריס": {"family": "דלת הזזה קליל אופיס 7500 תלת כנפי שלוש נתיבים", "type_format": "{w}x{h}"}
+  },
+  "finished_floor": {
+    "_comment": "A floor with fill: concrete as its name says, the template's tiles on top, fill for the rest.",
+    "when_name_has": "מילוי|מרפסת",
+    "base": "רצפה חיפוי 60/60 - 30 ס\"מ",
+    "tile_m": 0.02,
+    "concrete_default_m": 0.2,
+    "name": "רצפה בטון {concrete} + מילוי {fill} + ריצוף 60/60",
+    "balcony_word": "מרפסת",
+    "balcony_name": "רצפת מרפסת בטון {concrete} + מילוי {fill} + ריצוף 60/60"
+  },
+  "section_name": "חתך {name}",
+  "curtain_wall_type": "זכוכית בלבד",
+  "scope_box_name": "DWF",
+  "exterior_plaster": {
+    "_comment": "Exterior walls get a type with this plaster on their outside face. The core stays where the DWF put it.",
+    "material": "טיח חוץ",
+    "width_m": 0.02,
+    "name": "{core} + טיח חוץ {cm}"
   }
 }

@@ -169,6 +169,18 @@ class RevitScriptsFindTheModel(unittest.TestCase):
 
 
 class ProjectFolder(unittest.TestCase):
+    def setUp(self):
+        # the person's last save folder must not be overwritten by a test
+        from dwf2bim import cli
+        self.settings = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
+        self.settings.close()
+        self.patch = mock.patch.object(cli, "SETTINGS", Path(self.settings.name))
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        Path(self.settings.name).unlink(missing_ok=True)
+
     def test_relative_save_folder_is_refused_before_anything_runs(self):
         from dwf2bim import cli
         with self.assertRaises(fetch.FetchError):

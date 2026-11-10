@@ -87,6 +87,19 @@ The build creates the DWF's levels under their DWF names, each with a floor plan
 | `opening_families` | DWF family to template family, with `type_format` for type names such as `{w}w/{h}h`. A family may be of the other category |
 | `railing_types`, `default_railing_type` | Railing type names |
 
+## Floors, plaster and joins
+- A floor whose DWF name has fill (`מילוי`) or a balcony (`מרפסת`) gets a type made from `finished_floor.base` in `config/revit_mapping.json`: the concrete is the number in its name, the tiles stay 2 cm, and the fill takes the rest of the DWF thickness.
+- A wall marked exterior gets a type named `<core type> + טיח חוץ 2`, with 2 cm of the material `טיח חוץ` on the outside. Its location line is the core centreline, so the core stays on the DWF's axis, and it is turned so the plaster faces out. Interior walls have no plaster.
+- After the walls and floors, each floor is joined with the walls that cross it. Each wall is also joined with the wall it stands on. The log's `joins` gives the counts.
+- Ground level exterior walls get plaster too.
+- Last of the model, every wall is joined with each wall it stands on or runs into. Revit undoes a join that would stop a door or window cutting its wall.
+- A curtain wall inferred for doors the DWF hosted in an unexported curtain wall takes the type `curtain_wall_type` from the mapping. It is split at the doors' edges, and those panels become the doors' family.
+
+## Views
+- Each level's floor plan shows its DWF plan, imported from `model/views/<plan>.dxf` into that view only. Delete the import to hide it; a later run does not add it twice.
+- Each section line in the DWF's plans becomes a section view named `חתך <letter>` (`section_name` in the mapping). If one looks the wrong way, flip it in Revit and tell us which.
+- Scope box: Revit's API cannot create one. Draw a scope box around the building once, name it `DWF` (`scope_box_name` in the mapping), and run again: every plan and section takes it. Until then, plans are cropped to the plot.
+
 ## Checking the result
 The log lists walls under `walls_moved_by_revit` when their ends are over 30 cm from the DWF's, and under `walls_not_from_the_dwf` when they lack its stamp in Comments.
 

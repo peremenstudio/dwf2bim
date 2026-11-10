@@ -1,5 +1,6 @@
 {
   "_comment": "Maps Revit family names to model classes. First matching regex wins. Set a class in enabled_classes to include it in the model.",
+  "section_mark_families": ["Section"],
   "enabled_classes": ["wall", "floor", "door", "window", "stair", "railing", "mullion", "curtain_panel", "generic"],
   "type_rules": [
     {"match": "^אדמה$|^אדמה בלבד", "class": "site"}

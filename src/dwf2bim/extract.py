@@ -30,12 +30,26 @@ def _num(v):
     return float(m.group(1)) if m else None
 
 
+def separate_pieces(view, prims):
+    """The filled outlines of a drawing as one shape of separate pieces, or None when it has none."""
+    parts = []
+    for p in prims:
+        if p.kind in ("contour", "polygon") and len(p.points) >= 3:
+            g = make_valid(Polygon([view.to_m(q) for q in p.points]))
+            if g.area > 1e-5:
+                parts.append(g)
+    if len(parts) < 3:
+        return None
+    return unary_union(parts)
+
+
 class Rules:
     def __init__(self):
         cfg = json.loads((CONFIG_DIR / "classification.json").read_text(encoding="utf8"))
         self.enabled = set(cfg["enabled_classes"])
         self.rules = [(re.compile(r["match"]), r["class"]) for r in cfg["rules"]]
         self.type_rules = [(re.compile(r["match"]), r["class"]) for r in cfg.get("type_rules", [])]
+        self.section_marks = set(cfg.get("section_mark_families", []))
 
     def classify(self, family: str, type_name: str | None = None) -> str:
         for rx, cls in self.type_rules:
@@ -341,7 +355,110 @@ class Extractor:
         hull = MultiPoint(pts).convex_hull
         if hull.geom_type != "Polygon" or hull.area < 1e-5:
             hull = hull.buffer(0.01)
-        return {"kind": "extrusion", "polygons": _polys_out(hull, 0.003), "source": "plan_outline", "source_view": view.key}
+        out = {"kind": "extrusion", "polygons": _polys_out(hull, 0.003), "source": "plan_outline", "source_view": view.key}
+        pieces = separate_pieces(view, prims)
+        if pieces is not None and pieces.area < 0.6 * hull.area:
+            # slats, beams and posts with air between them, as in a pergola: each is built on its own
+            out["pieces"] = _polys_out(pieces, 0.003)
+        return out
+
+    def unresolved_outlines(self, unresolved):
+        """Where an element that could not be built stands in plan, as the hull of its drawing, so later rules leave room for it."""
+        for u in unresolved:
+            el = self.elements.get(u["id"])
+            host = el.props.get("Host Id") if el is not None else None
+            if host and not str(host).strip().isdigit():
+                u["host_kind"] = host  # a family name, as for a door in a curtain wall the DWF did not export
+            view, prims = self.plan_prims(u["id"])
+            pts = self._points(view, prims) if view is not None else []
+            if len(pts) >= 3:
+                hull = MultiPoint(pts).convex_hull
+                if hull.geom_type == "Polygon":
+                    u["plan_outline"] = [_round2(q) for q in hull.exterior.coords[:-1]]
+
+    def section_marks(self, building, margin=10.0):
+        """The section lines drawn in the plans: name, ends, and the side each section looks to.
+
+        The side is measured: along the line, the section drawing's horizontal axis must grow the
+        way the elements it shows lie in plan. When too few elements are shared, the filled mark of
+        the section head decides, as it sits on the side the section looks to.
+        """
+        sections = {v.source_name.split(":", 1)[-1].strip(): v for v in self.views.values() if v.kind == "section"}
+        pts = [q for r in building["elements"] if r["class"] == "wall" for q in (r["geometry"].get("p0"), r["geometry"].get("p1")) if q]
+        if not pts:
+            return []
+        box = (min(q[0] for q in pts) - margin, min(q[1] for q in pts) - margin, max(q[0] for q in pts) + margin, max(q[1] for q in pts) + margin)
+        found = {}
+        plans = sorted((v for v in self.aligned.values() if v.offset is not None), key=lambda v: not v.primary)
+        for plan in plans:
+            sheet = self.sheets[plan.sheet]
+            marks = collections.defaultdict(list)
+            for p in plan.prims + plan.annotation:
+                el = sheet.elements.get(sheet.node_to_element.get(p.node))
+                if el is not None and el.family in self.rules.section_marks:
+                    marks[el.id].append(p)
+            for prims in marks.values():
+                mark = self._section_mark(plan, prims, sections)
+                # a mark whose ends fall far from the building is misread, and another plan's copy is taken
+                if mark is not None and mark["name"] not in found and all(
+                        box[0] <= q[0] <= box[2] and box[1] <= q[1] <= box[3] for q in (mark["p0"], mark["p1"])):
+                    found[mark["name"]] = mark
+        return list(found.values())
+
+    def _section_mark(self, plan, prims, sections):
+        prims = [p for p in prims if p.kind == "text" or len(p.points) < 50]
+        texts = [p.text.strip() for p in prims if p.kind == "text" and getattr(p, "text", None) and p.text.strip()]
+        ends = [plan.to_m(q) for p in prims if p.kind in ("line", "polyline") for q in p.points]
+        if not texts or len(ends) < 2:
+            return None
+        name = texts[0]
+        a, b = max(((q, r) for i, q in enumerate(ends) for r in ends[i + 1:]), key=lambda qr: math.dist(*qr))
+        length = math.dist(a, b)
+        if length < 1.0:
+            return None
+        d = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        normal = (-d[1], d[0])
+        heads = [plan.to_m(q) for p in prims if p.kind in ("polygon", "contour") for q in p.points]
+        side = None
+        if heads:
+            cx, cy = sum(q[0] for q in heads) / len(heads), sum(q[1] for q in heads) / len(heads)
+            side = 1 if (cx - a[0]) * normal[0] + (cy - a[1]) * normal[1] > 0 else -1
+        look, source = (None, None)
+        view = sections.get(name)
+        sign = self._section_axis_sign(plan, view, a, d) if view is not None else None
+        if sign is not None:
+            right = (sign * d[0], sign * d[1])
+            look, source = (-right[1], right[0]), "measured"
+        elif side is not None:
+            look, source = (normal[0] * side, normal[1] * side), "section head"
+        if look is None:
+            return None
+        return {"name": name, "view": view.key if view is not None else None, "p0": _round2(a), "p1": _round2(b),
+                "look": [round(look[0], 4), round(look[1], 4)], "look_source": source, "found_in": plan.key}
+
+    def _section_axis_sign(self, plan, view, origin, d, minimum=5):
+        """+1 when the section's horizontal axis runs with d in plan, -1 against it, None when unknown."""
+        def centres(v, to_m):
+            sheet = self.sheets[v.sheet]
+            acc = collections.defaultdict(list)
+            for p in v.prims:
+                eid = sheet.node_to_element.get(p.node)
+                if eid is not None and p.kind != "text":
+                    acc[eid] += [to_m(q) for q in p.points]
+            return {k: (sum(q[0] for q in pts) / len(pts), sum(q[1] for q in pts) / len(pts)) for k, pts in acc.items() if pts}
+
+        in_plan = centres(plan, plan.to_m)
+        in_section = centres(view, lambda q: q)
+        pairs = [(in_section[k][0], (in_plan[k][0] - origin[0]) * d[0] + (in_plan[k][1] - origin[1]) * d[1]) for k in in_section.keys() & in_plan.keys()]
+        if len(pairs) < minimum:
+            return None
+        mx = sum(x for x, _ in pairs) / len(pairs)
+        mu = sum(u for _, u in pairs) / len(pairs)
+        cov = sum((x - mx) * (u - mu) for x, u in pairs)
+        spread = math.sqrt(sum((x - mx) ** 2 for x, _ in pairs) * sum((u - mu) ** 2 for _, u in pairs))
+        if not spread or abs(cov / spread) < 0.8:
+            return None
+        return 1 if cov > 0 else -1
 
     def box_heights(self, el, level):
         zr = self.z_range(el.id)
@@ -497,8 +614,8 @@ class Extractor:
                 f = o["geometry"]["flights"][0]
                 return (f["end"][0] - f["start"][0]) * (mine["end"][0] - mine["start"][0]) + (f["end"][1] - f["start"][1]) * (mine["end"][1] - mine["start"][1])
 
-            against = [o for o in core if heading(o) < 0]
-            if len(against) > len(core) - len(against):
+            against = [o for o in core if heading(o) < 0 and layout_fits(g, o["geometry"]["flights"])]
+            if against and len(against) > len(core) - len(against):
                 g["flights"] = copy.deepcopy(against[0]["geometry"]["flights"])
                 g["layout_from"] = against[0]["id"]
         checked = [r for r in stairs if r["geometry"].get("direction_checked") and r["geometry"].get("flights")]
@@ -511,7 +628,7 @@ class Extractor:
                 f = other["geometry"]["flights"]
                 if other["geometry"]["risers"] == g["risers"] and any(
                     LineString([x["start"], x["end"]]).distance(LineString([mine["start"], mine["end"]])) < 0.1 for x in f
-                ):
+                ) and layout_fits(g, f):
                     g["flights"] = copy.deepcopy(f)
                     g["direction_checked"] = True
                     g["layout_from"] = other["id"]
@@ -556,6 +673,15 @@ class Extractor:
 
         # copy geometry from a matching element on another level (typical floors)
         self._borrow_stair_layout(built)
+        walls = {}
+        for rec in built.values():
+            g = rec["geometry"]
+            if rec["class"] == "wall" and g.get("p0"):
+                walls.setdefault(rec["level"], []).append(LineString([g["p0"], g["p1"]]).buffer(max(g["width"] / 2 - 0.02, 0.01), cap_style=2))
+        stray = [rec for rec in built.values() if rec["class"] == "stair"
+                 and (flights_cross_walls(rec["geometry"], walls.get(rec["level"], [])) or not flights_connect(rec["geometry"]))]
+        for rec in stray:
+            del built[rec["id"]]
         self._clone_missing(built, [p for p in pending if p[1] not in ("door", "window")])
         placed, unplaced = self._place_openings(built, [p for p in pending if p[1] in ("door", "window")])
         self._clone_openings(built, placed, unplaced)
@@ -567,6 +693,11 @@ class Extractor:
             {"id": el.id, "class": cls, "family": english(el.family), "type": english(el.props.get("Type Name")), "level": level_id(_level_of(el))}
             for el, cls in left
             if _level_of(el) not in self.typical
+        ]
+        missing += [
+            {"id": rec["id"], "class": "stair", "family": rec.get("family"), "type": rec.get("type"), "level": rec["level"],
+             "reason": "its flights would run through a wall, or do not meet at a landing"}
+            for rec in stray
         ]
         for info in typical_info.values():
             info["source_elements_without_a_twin"] = [
@@ -1110,6 +1241,42 @@ STAIR_WELL_M = 0.135
 REVIT_MIN_GAP_M = 0.012
 LEVEL_PROPERTIES = ("Level", "Base Constraint", "Top Constraint", "Reference Level", "Associated Level", "Base Level", "Top Level", "Schedule Level")
 LEVEL_TWIN_M = 0.01
+STAIR_WALL_OVERLAP_M2 = 0.25  # a flight crossing more wall than this runs through it
+
+
+def flights_cross_walls(geometry, walls, limit=STAIR_WALL_OVERLAP_M2) -> bool:
+    """Whether a stair's flights run through walls of its level. A flight beside a wall only touches it."""
+    for f in geometry.get("flights") or []:
+        strip = LineString([f["start"], f["end"]]).buffer(f["width"] / 2, cap_style=2)
+        if sum(strip.intersection(w).area for w in walls if strip.intersects(w)) > limit:
+            return True
+    return False
+
+
+def flights_connect(geometry, slack=2.0) -> bool:
+    """Whether each flight ends where a landing can carry on to the next one. Flights far apart are a misread layout.
+
+    The slack is the most a landing adds beyond the two flights' widths, as across a wide stair well.
+    """
+    flights = geometry.get("flights") or []
+    for a, b in zip(flights, flights[1:]):
+        if math.dist(a["end"], b["start"]) > a["width"] + b["width"] + slack:
+            return False
+    return True
+
+
+def layout_fits(geometry, flights, share=0.8) -> bool:
+    """Whether another stair's flights cover the treads this stair shows, so borrowing them keeps it in place.
+
+    A ground floor stair may show a few treads only, and the stair below may turn the other way;
+    its flights would then run through walls.
+    """
+    treads = geometry.get("treads") or []
+    if not treads:
+        return True
+    strips = unary_union([LineString([f["start"], f["end"]]).buffer(f["width"] / 2 + 0.1, cap_style=2) for f in flights])
+    inside = sum(strips.contains(Polygon(t["polygon"]).centroid) for t in treads)
+    return inside >= share * len(treads)
 
 
 def drop_empty_twin_levels(levels: dict, uses) -> tuple:

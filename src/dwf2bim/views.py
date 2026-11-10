@@ -241,6 +241,30 @@ def calibrate_heights(views: dict, sheets, levels: dict) -> None:
             v.z_residual = max(abs(p - v.z_offset) for p in pairs)
 
 
+def in_model_frame(v) -> bool:
+    """A plan aligned to the others has the model's coordinates, so its drawing can sit under the model."""
+    return v.kind == "plan" and v.offset is not None and v.orientation != "True North"
+
+
+def plan_drawings(views: dict, levels, typical: dict) -> dict:
+    """For each level, the DWF plan to show in its floor plan, as a path beside building.json.
+
+    Only a plan in the model's coordinates qualifies, and of a level's plans the base one, with the
+    shortest name, wins over its variants. A typical storey drawn once shows the plan it was copied from.
+    """
+    by_level = {}
+    for v in views.values():
+        if in_model_frame(v) and v.level:
+            by_level.setdefault(level_id(v.level), []).append(v)
+    out = {}
+    for lid in levels:
+        source = lid if lid in by_level else (typical.get(lid) or {}).get("copied_from")
+        if by_level.get(source):
+            best = min(by_level[source], key=lambda v: (len(v.source_name), v.key))
+            out[lid] = f"views/{best.key}.dxf"
+    return out
+
+
 def views_manifest(views: dict) -> list:
     return [
         {
@@ -255,6 +279,7 @@ def views_manifest(views: dict) -> list:
             "plan_offset_m": v.offset,
             "height_calibrated": v.z_offset is not None,
             "height_residual_m": v.z_residual,
+            "dxf_in_model_frame": in_model_frame(v),
         }
         for v in views.values()
     ]

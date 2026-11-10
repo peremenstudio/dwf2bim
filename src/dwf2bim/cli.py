@@ -10,7 +10,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.validate
 
-from . import dwfx, dynamo, fetch, ifc_export, package, qa, site, views as views_mod, xps
+from . import conventions, dwfx, dynamo, fetch, ifc_export, package, qa, site, views as views_mod, xps
 from .extract import Extractor
 from .names import level_id
 
@@ -85,6 +85,8 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     _log("Stage 3-4/6 align plans, calibrate heights, reconstruct elements")
     ex = Extractor(sheets, views)
     building = ex.run()
+    building["sections"] = ex.section_marks(building)
+    ex.unresolved_outlines(building["unresolved"])
     _log(f"  elements={len(building['elements'])} openings={len(building['openings'])} unresolved={len(building['unresolved'])}")
 
     _log("Stage 4b/6 survey, plot and building lines, area plan, slab limits")
@@ -96,8 +98,11 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     site.assign_apartments(building)
     site.merge_storey_slabs(building)
     site.keep_plate_masses(building)
+    _log(f"  modelling rules: { {k: (len(v) if isinstance(v, list) else v) for k, v in conventions.apply(building).items()} }")
     placement = building["site"].get("placement")
     _log(f"  placement={placement} slab_clip={building['site'].get('slab_clip')}")
+    if not skip_dxf:
+        building["plan_drawings"] = views_mod.plan_drawings(views, building["levels"], building.get("typical_floors") or {})
     (out / "building.json").write_text(json.dumps(building, ensure_ascii=False, indent=1), encoding="utf8")
 
     manifest = views_mod.views_manifest(views)

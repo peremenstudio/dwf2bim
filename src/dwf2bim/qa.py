@@ -46,19 +46,37 @@ def render_view(view, path, width=2400):
 
 
 def export_dxf(view, path):
-    """One DXF per view, in metres at model scale, local to the view."""
+    """One DXF per view, in metres at model scale, with its annotation and text.
+
+    A plan aligned to the others is in the model's coordinates, so Revit can place it origin to
+    origin under the model. Any other view is local to itself.
+    """
+    from .views import in_model_frame
+
     doc = ezdxf.new("R2018", setup=False)
     doc.units = ezdxf.units.M
     msp = doc.modelspace()
     k = 1.0 / (view.upm * 1000.0)
-    for p in view.prims:
-        pts = [(x * k, y * k) for x, y in p.points]
-        if p.kind in ("contour", "polygon") and len(pts) > 2:
-            msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": "CUT"})
-        elif p.kind in ("line", "polyline") and len(pts) > 1:
-            msp.add_lwpolyline(pts, dxfattribs={"layer": "VIEW"})
-        elif p.kind == "circle":
-            msp.add_circle(pts[0], p.radius[0] * k, dxfattribs={"layer": "VIEW"})
+    if in_model_frame(view):
+        place = view.to_m
+    else:
+        def place(q):
+            return (q[0] * k, q[1] * k)
+    text_height = 0.0025 * (view.scale or 100)
+    for layer, prims in (("MODEL", view.prims), ("ANNOTATION", view.annotation)):
+        for p in prims:
+            pts = [place(q) for q in p.points]
+            if not pts:
+                continue
+            if p.kind == "text":
+                if p.text and p.text.strip():
+                    msp.add_text(p.text.strip(), height=text_height, dxfattribs={"layer": layer + "_TEXT", "insert": pts[0]})
+            elif p.kind in ("contour", "polygon") and len(pts) > 2:
+                msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": layer + "_CUT" if layer == "MODEL" else layer})
+            elif p.kind in ("line", "polyline") and len(pts) > 1:
+                msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
+            elif p.kind == "circle" and p.radius:
+                msp.add_circle(pts[0], p.radius[0] * k, dxfattribs={"layer": layer})
     doc.saveas(path)
 
 
@@ -487,6 +505,37 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
             out += ["- The model is not placed."]
         if site.get("slab_clip"):
             out += [f"- Slabs fitted to the area plan: {site['slab_clip']}."]
+        out.append("")
+    rules = b.get("modelling")
+    if rules:
+        out += ["## Modelling rules", "",
+                f"- Walls raised to start at their level: {rules['walls_raised_to_level']}. Levels kept as drawn: {', '.join(rules['levels_kept_as_drawn'])}",
+                f"- Walls run up to the level above, to meet the wall there: {rules['walls_raised_to_level_above']}",
+                f"- Walls merged into the wall they continue: {rules['walls_merged_into_others']}",
+                f"- Main slabs extended to the outer face of the exterior walls' core: {rules['slabs_extended_to_wall_core']}",
+                f"- Floors trimmed where they overlapped a stronger floor: {rules['floors_trimmed']}",
+                f"- Floors removed as covered by another: {len(rules['floors_removed_as_covered'])}",
+                f"- Walls moved to stand on the wall below (inferred): {len(rules.get('walls_aligned_to_wall_below', []))}",
+                f"- Curved walls built from arcs: {rules.get('curved_walls', 0)}, in {rules.get('curved_wall_pieces', 0)} pieces",
+                f"- Exterior walls, to get exterior plaster in Revit: {rules['exterior_walls']} (curved walls not marked: {rules['curved_walls_not_marked']}). Ground level walls get no plaster.",
+                f"- Ground floors added inside the plot (inferred): {len(rules.get('ground_floors_added', []))}, "
+                f"{round(sum(r['area_m2'] for r in rules.get('ground_floors_added', [])), 1)} m2. Left open: {len(rules.get('ground_left_open', []))}", ""]
+        if rules.get("ground_left_open"):
+            out += ["| Ground left open at | Area m2 | Why |", "|---|---:|---|"]
+            out += [f"| {r['where']} | {r.get('area_m2', '')} | {r['reason']} |" for r in rules["ground_left_open"]]
+            out.append("")
+        moved = [r for r in rules.get("walls_aligned_to_wall_below", []) if abs(r["moved_m"]) >= 0.3]
+        if moved:
+            out += ["Walls moved 30 cm or more to stand on the wall below; check these:", "", "| Wall | Level | Moved m |", "|---|---|---:|"]
+            out += [f"| {r['id']} | {r['level']} | {r['moved_m']} |" for r in moved]
+            out.append("")
+        if rules["floors_removed_as_covered"]:
+            out += ["| Floor | Level | Type | Area m2 |", "|---|---|---|---:|"]
+            out += [f"| {r['id']} | {r['level']} | {r['type']} | {r['area_m2']} |" for r in rules["floors_removed_as_covered"]]
+            out.append("")
+    if b.get("sections"):
+        out += ["## Section lines", "", "| Section | Drawing | From | To | Looks | Side from |", "|---|---|---|---|---|---|"]
+        out += [f"| {x['name']} | {x['view']} | {x['p0']} | {x['p1']} | {x['look']} | {x['look_source']} |" for x in b["sections"]]
         out.append("")
     if site and site.get("building_lines_left_out"):
         out += [f"Building lines on the Revit sheet not used, as the closed line stands alone: {site['building_lines_left_out']}", ""]

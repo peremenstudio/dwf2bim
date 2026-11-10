@@ -175,6 +175,61 @@ class MockedBuild(unittest.TestCase):
         self.assertAlmostEqual(args[4], 3.5 / 0.3048)  # height
         self.assertAlmostEqual(args[5], -0.5 / 0.3048)  # base offset
 
+    def test_an_exterior_wall_is_drawn_with_its_outside_on_the_left(self):
+        m, b = self.build()
+        for side, first in ((1, 0.0), (-1, 4.0)):
+            m.XYZ.reset_mock()
+            rec = dict(self.wall(), exterior_side=side)
+            b.make_wall(rec)
+            self.assertAlmostEqual(m.XYZ.call_args_list[0][0][0], first / 0.3048)
+
+    def test_a_ground_wall_marked_without_plaster_keeps_its_core_type(self):
+        m, b = self.build()
+        b._plastered_type = mock.MagicMock()
+        b.make_wall(dict(self.wall(), exterior_side=1, plaster=False))
+        b._plastered_type.assert_not_called()
+        b.make_wall(dict(self.wall(), exterior_side=1))
+        b._plastered_type.assert_called_once()
+
+    def test_a_curved_wall_is_built_from_its_arcs(self):
+        m, b = self.build()
+        m.Arc.Create.reset_mock()
+        rec = dict(self.wall())
+        rec["geometry"] = {"kind": "extrusion", "path": [[0, 0], [1, 1], [2, 0]], "width": 0.2,
+                           "arcs": [[[0, 0], [1, 1], [2, 0]], [[2, 0], [3, 0]]]}
+        b.make_wall(rec)
+        self.assertEqual(m.Arc.Create.call_count, 1)
+
+    def test_pergola_slats_become_one_floor_each(self):
+        m, b = self.build()
+        m.Floor.Create.reset_mock()
+        square = lambda x: {"outer": [[x, 0], [x + 0.05, 0], [x + 0.05, 2], [x, 2]]}
+        rec = {"id": "p", "class": "generic", "level": "L00", "z0": 3.0, "z1": 3.07,
+               "geometry": {"kind": "extrusion", "polygons": [square(0)], "pieces": [square(0), square(1), square(2)]}}
+        b.make_mass_floor(rec)
+        self.assertEqual(m.Floor.Create.call_count, 3)
+
+    def test_a_wall_that_fails_after_creation_is_deleted(self):
+        m, b = self.build()
+        b._connect_top = mock.MagicMock(side_effect=RuntimeError("no"))
+        b.doc.Delete.reset_mock()
+        with self.assertRaises(RuntimeError):
+            b.make_wall(self.wall())
+        self.assertEqual(b.doc.Delete.call_count, 1)
+
+    def test_a_wall_reaching_the_storey_above_is_tied_to_it(self):
+        m, b = self.build()
+        upper = mock.MagicMock()
+        upper.Elevation = 3.5 / 0.3048
+        b.levels["L01"] = upper
+        wall = mock.MagicMock()
+        b._connect_top(wall, dict(self.wall(), z1=3.1), b.levels["L00"])
+        offset = wall.get_Parameter.return_value.Set.call_args_list[-1][0][0]
+        self.assertAlmostEqual(offset, -0.4 / 0.3048)
+        wall = mock.MagicMock()
+        b._connect_top(wall, dict(self.wall(), z1=1.0), b.levels["L00"])
+        wall.get_Parameter.return_value.Set.assert_not_called()
+
     def test_a_mass_ends_up_as_a_floor_and_never_a_wall(self):
         m, b = self.build()
         m.Wall.Create.reset_mock()
@@ -599,6 +654,101 @@ class Site(unittest.TestCase):
         assign_apartments(building)
         self.assertEqual((lower["unit_ids"]["L01"]["1"], typical["unit_ids"]["L03"]["10"], typical["unit_ids"]["L04"]["10"]), (1, 2, 3))
 
+    def test_floor_layers_take_concrete_from_the_name_and_keep_the_tiles(self):
+        floor_layers = load().floor_layers
+        spec = {"when_name_has": "מילוי|מרפסת", "tile_m": 0.02, "concrete_default_m": 0.2}
+        self.assertEqual(floor_layers("בטון 25 + 15 מילוי", 0.40, spec), (0.25, 0.13, 0.02))
+        self.assertEqual(floor_layers("בטון 22 + 18 מילוי 3", 0.40, spec), (0.22, 0.16, 0.02))
+        self.assertEqual(floor_layers("רצפה מרפסת", 0.30, spec), (0.2, 0.08, 0.02))
+        self.assertIsNone(floor_layers("בטון 25", 0.25, spec))
+        self.assertIsNone(floor_layers("בטון 25 + 1 מילוי", 0.26, spec))
+
+    def _rules_building(self):
+        def floor(i, level, z, box, role):
+            x0, y0, x1, y1 = box
+            holes = [[[6, 6.2], [8, 6.2], [8, 8], [6, 8]]] if i == "main" else []
+            return {"id": i, "class": "floor", "level": level, "z0": z - 0.4, "z1": z, "source_type": "T",
+                    "geometry": {"polygons": [{"outer": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], "holes": holes}], "slab_role": role}}
+        def wall(i, level, z0, z1, p0, p1):
+            return {"id": i, "class": "wall", "level": level, "z0": z0, "z1": z1, "geometry": {"kind": "axis", "p0": p0, "p1": p1, "width": 0.2}}
+        levels = {"L-01": {"z": -3.0, "source_name": "-01"}, "L00": {"z": 0.0, "source_name": "00"}, "L01": {"z": 3.5, "source_name": "01"},
+                  "ROOF": {"z": 7.0, "source_name": "\u200fגג"}, "TOP": {"z": 9.0, "source_name": "x"}}
+        elements = [
+            wall("w-1", "L-01", -3.4, -0.4, [0, 0], [10, 0]), wall("w0", "L00", -0.4, 3.1, [0, 0], [10, 0]),
+            wall("w1", "L01", 3.1, 6.6, [0, -0.1], [10, -0.1]), wall("wi", "L01", 3.1, 6.6, [5, 1], [5, 9]),
+            wall("wr", "ROOF", 6.6, 8.0, [0, 0], [10, 0]), wall("wp", "L01", 3.6, 4.6, [0, 0], [10, 0]),
+            floor("main", "L01", 3.5, (0, 0, 10, 10), "main"), floor("dup", "L01", 3.5, (2, 2, 4, 4), None),
+            wall("shaft", "L01", 3.1, 6.6, [6, 6], [8, 6]),
+            floor("bal", "L01", 3.48, (8, 9, 12, 12), "balcony"),
+        ]
+        return {"levels": levels, "elements": elements}
+
+    def test_a_wall_under_the_storey_above_runs_up_to_it(self):
+        from dwf2bim import conventions
+        b = self._rules_building()
+        report = conventions.walls_to_level_above(b)
+        walls = {r["id"]: r for r in b["elements"] if r["class"] == "wall"}
+        self.assertEqual((walls["w1"]["z1"], walls["w1"]["top_level"], walls["w1"]["top_offset"]), (7.0, "ROOF", 0.0))
+        self.assertEqual(walls["wp"]["z1"], 4.6)  # a parapet stops well below the next level
+        self.assertGreaterEqual(report["walls_raised_to_level_above"], 3)
+
+    def test_walls_that_continue_each_other_become_one(self):
+        from dwf2bim import conventions
+        def wall(i, p0, p1, kind="T"):
+            return {"id": i, "class": "wall", "level": "L01", "z0": 3.5, "z1": 7.0, "source_type": kind,
+                    "geometry": {"kind": "axis", "p0": p0, "p1": p1, "width": 0.2}}
+        b = {"elements": [wall("a", [0, 0], [4, 0]), wall("b", [4, 0], [9, 0.005]), wall("c", [9, 0], [12, 0], kind="other"),
+                          wall("d", [0, 1], [4, 1])],
+             "openings": [{"id": "o", "host": "b"}]}
+        report = conventions.merge_wall_runs(b)
+        walls = {r["id"]: r for r in b["elements"]}
+        self.assertEqual(sorted(walls), ["a", "c", "d"])
+        self.assertAlmostEqual(walls["a"]["geometry"]["p1"][0], 9.0, places=2)
+        self.assertEqual(b["openings"][0]["host"], "a")
+        self.assertEqual(report["walls_merged_into_others"], 1)
+
+    def test_main_slab_reaches_the_outer_face_of_the_exterior_wall_core(self):
+        from dwf2bim import conventions
+        b = self._rules_building()
+        conventions.mark_exterior_walls(b)
+        conventions.extend_slabs_to_wall_core(b)
+        main = next(r for r in b["elements"] if r["id"] == "main")
+        ys = [q[1] for p in main["geometry"]["polygons"] for q in p["outer"]]
+        self.assertAlmostEqual(min(ys), -0.2, places=2)  # wall w1 on y = -0.1, 0.2 thick
+        self.assertTrue(main["geometry"]["polygons"][0]["holes"])  # the shaft stays open
+
+    def test_walls_start_at_their_level_except_ground_and_roof(self):
+        from dwf2bim import conventions
+        b = self._rules_building()
+        report = conventions.walls_from_level(b)
+        z0 = {r["id"]: r["z0"] for r in b["elements"] if r["class"] == "wall"}
+        self.assertEqual((z0["w-1"], z0["w1"], z0["wi"]), (-3.0, 3.5, 3.5))
+        self.assertEqual((z0["w0"], z0["wr"], z0["wp"]), (-0.4, 6.6, 3.6))
+        self.assertEqual(report["walls_raised_to_level"], 4)
+        self.assertIn("ROOF", report["levels_kept_as_drawn"])
+
+    def test_a_floor_inside_a_stronger_one_goes_and_an_overlap_is_cut(self):
+        from dwf2bim import conventions
+        b = self._rules_building()
+        report = conventions.remove_floor_overlaps(b)
+        ids = [r["id"] for r in b["elements"] if r["class"] == "floor"]
+        self.assertNotIn("dup", ids)
+        self.assertEqual(report["floors_removed_as_covered"][0]["id"], "dup")
+        balcony = next(r for r in b["elements"] if r["id"] == "bal")
+        self.assertNotIn("trimmed_by_overlap_m2", balcony["geometry"])  # a balcony keeps its full size
+        main = next(r for r in b["elements"] if r["id"] == "main")
+        self.assertAlmostEqual(main["geometry"]["trimmed_by_overlap_m2"], 2.0, places=2)
+
+    def test_exterior_walls_know_which_side_faces_out(self):
+        from dwf2bim import conventions
+        b = self._rules_building()
+        conventions.mark_exterior_walls(b)
+        side = {r["id"]: r.get("exterior_side") for r in b["elements"] if r["class"] == "wall"}
+        self.assertEqual(side["w1"], -1)  # the slab is to the left of p0 to p1, so the outside is to the right
+        self.assertIsNone(side["wi"])
+        self.assertIsNone(side["w-1"])
+        self.assertIsNone(side["shaft"])  # beside a hole in the slab, which is inside the building
+
     def test_a_difference_keeps_only_area_after_overlays_leave_lines(self):
         from shapely.geometry import GeometryCollection, LineString, Polygon
         from dwf2bim.site import _difference
@@ -614,6 +764,32 @@ class Site(unittest.TestCase):
         self.assertEqual(sorted(ring), sorted(square))
         self.assertIsNone(ring_from_pieces(pieces, 150.0))
         self.assertEqual(sorted(ring_from_pieces([square + [square[0]]], 100.0)), sorted(square))
+
+    def test_a_stair_borrows_a_layout_only_if_it_covers_its_treads(self):
+        from dwf2bim.extract import layout_fits
+        treads = {"treads": [{"polygon": [[0, y], [1, y], [1, y + 0.28], [0, y + 0.28]]} for y in (0.0, 0.28, 0.56)]}
+        along = [{"start": [0.5, -0.5], "end": [0.5, 3.0], "width": 1.0}]
+        across = [{"start": [-1.0, 5.0], "end": [3.0, 5.0], "width": 1.0}]
+        self.assertTrue(layout_fits(treads, along))
+        self.assertFalse(layout_fits(treads, across))
+
+    def test_a_stair_whose_flight_runs_through_a_wall_is_not_built(self):
+        from shapely.geometry import LineString
+        from dwf2bim.extract import flights_cross_walls
+        wall = LineString([(-3, 2.0), (3, 2.0)]).buffer(0.08, cap_style=2)
+        beside = {"flights": [{"start": [0.5, 0.0], "end": [0.5, 1.9], "width": 1.0}]}
+        through = {"flights": [{"start": [0.5, 0.0], "end": [0.5, 4.0], "width": 1.0}]}
+        self.assertFalse(flights_cross_walls(beside, [wall]))
+        self.assertTrue(flights_cross_walls(through, [LineString([(-3, 2.0), (3, 2.0)]).buffer(0.2, cap_style=2)]))
+
+    def test_flights_must_meet_at_a_landing(self):
+        from dwf2bim.extract import flights_connect
+        u_turn = {"flights": [{"start": [0, 0], "end": [0, 3], "width": 1.1}, {"start": [1.3, 3], "end": [1.3, 0], "width": 1.1}]}
+        apart = {"flights": [{"start": [32.1, 41.4], "end": [31.9, 39.0], "width": 0.77}, {"start": [29.3, 42.2], "end": [31.8, 42.0], "width": 0.77}]}
+        wide_well = {"flights": [{"start": [30.4, 42.1], "end": [32.9, 41.9], "width": 0.75}, {"start": [32.6, 39.6], "end": [30.2, 39.8], "width": 0.75}]}
+        self.assertTrue(flights_connect(u_turn))
+        self.assertTrue(flights_connect(wide_well))
+        self.assertFalse(flights_connect(apart))
 
     def test_an_empty_level_with_a_twin_at_its_height_is_left_out(self):
         from dwf2bim.extract import drop_empty_twin_levels
