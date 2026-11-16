@@ -154,6 +154,9 @@ def quality(building, checks=None) -> dict:
         "area_plan_worst_fit": min((a.get("walls_inside_share", 0) for a in areas), default=None),
         "area_plan_levels_not_placed_surely": [lid for a in areas if not area_plan_is_sure(a, QUALITY["area_plan_min_fit"]) for lid in a["levels"]],
     }
+    storeys = ((building.get("modelling") or {}).get("floor_contours") or {}).get("storeys", [])
+    metrics["storeys_off_their_area_plan"] = [x["level"] for x in storeys if x.get("floors_over_area_plan") is not None
+                                              and abs(x["floors_over_area_plan"] - 1.0) > QUALITY["storey_area_tolerance"]]
     reasons = {"failed": [], "review": []}
     for name, limits in QUALITY["limits"].items():
         value = metrics.get(name)
@@ -163,6 +166,9 @@ def quality(building, checks=None) -> dict:
             if verdict in limits and value > limits[verdict]:
                 reasons[verdict].append(f"{name} is {value}, over {limits[verdict]}")
                 break
+    if metrics["storeys_off_their_area_plan"]:
+        reasons["review"].append("floors differ from the area plan by over {:.0%} on: {}".format(
+            QUALITY["storey_area_tolerance"], ", ".join(metrics["storeys_off_their_area_plan"])))
     if not metrics["placed_on_the_survey"]:
         reasons["review"].append("the model is not placed on the survey")
     if not areas:

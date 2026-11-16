@@ -68,6 +68,82 @@ def walls_to_level_above(building) -> dict:
     return {"walls_raised_to_level_above": raised}
 
 
+def _leave_out(building, rec, reason):
+    """Take an element out of the model and list it with the reason. Nothing leaves the model unlisted."""
+    building.setdefault("left_out", []).append({"id": rec["id"], "class": rec["class"], "level": rec.get("level"),
+                                                "type": rec.get("type"), "reason": reason})
+
+
+def leave_out_beyond_plot(building) -> dict:
+    """A floor lying mostly outside the plot, such as a sidewalk or a road, is not part of the building."""
+    plot = ((building.get("site") or {}).get("plot") or {}).get("ring") or []
+    if len(plot) < 3:
+        return {"floors_left_out_beyond_the_plot": 0}
+    inside = make_valid(Polygon(plot))
+    gone = set()
+    for rec in building["elements"]:
+        if rec["class"] != "floor" or not rec["geometry"].get("polygons"):
+            continue
+        shape = _shape(rec)
+        if shape is not None and shape.area > 0 and _difference(shape, inside).area > RULES["beyond_plot_share"] * shape.area:
+            _leave_out(building, rec, "outside the plot: {} of {} m2".format(round(_difference(shape, inside).area, 1), round(shape.area, 1)))
+            gone.add(rec["id"])
+    building["elements"] = [r for r in building["elements"] if r["id"] not in gone]
+    return {"floors_left_out_beyond_the_plot": len(gone)}
+
+
+def leave_out_openings_off_their_storey(building) -> dict:
+    """A door or window far below its level, or above the next one, was read wrongly: it would hang in the air."""
+    order = sorted(building["levels"].items(), key=lambda kv: kv[1]["z"])
+    above = {lid: (order[i + 1][1]["z"] if i + 1 < len(order) else None) for i, (lid, _) in enumerate(order)}
+    kept, gone = [], 0
+    for op in building.get("openings", []):
+        level = building["levels"].get(op.get("level"))
+        if level is None:
+            kept.append(op)
+            continue
+        top = op["z0"] + op.get("height", 0.0)
+        ceiling = above[op["level"]]
+        if op["z0"] < level["z"] - RULES["opening_below_level_m"] or (ceiling is not None and top > ceiling + RULES["opening_above_next_level_m"]):
+            _leave_out(building, op, "its height, {} to {} m, is off its storey at {} m".format(round(op["z0"], 2), round(top, 2), level["z"]))
+            gone += 1
+        else:
+            kept.append(op)
+    building["openings"] = kept
+    return {"openings_left_out_off_their_storey": gone}
+
+
+def walls_once_in_height(building) -> dict:
+    """No two walls stand in the same place over the same height.
+
+    A wall drawn from under its level, as roof walls are, meets the wall below after that one was run up to
+    the level. The upper wall then starts where the lower one ends.
+    """
+    from shapely.strtree import STRtree
+
+    walls = [r for r in building["elements"] if r["class"] == "wall"]
+    if not walls:
+        return {"walls_cut_where_they_doubled": 0}
+    shapes = [unary_union(_wall_shapes([w])) for w in walls]  # one shape per wall, also for one drawn in pieces
+    tree = STRtree(shapes)
+    cut = 0
+    for i, upper in enumerate(walls):
+        if shapes[i].area <= 0:
+            continue
+        for j in tree.query(shapes[i]):
+            lower = walls[j]
+            if j == i or not (lower["z0"] < upper["z0"] - 0.005 < lower["z1"] - 0.005 and lower["z1"] < upper["z1"] - 0.1):
+                continue
+            if lower["z1"] - upper["z0"] > RULES["wall_double_max_m"]:
+                continue
+            if shapes[i].intersection(shapes[j]).area >= RULES["wall_double_min_overlap"] * shapes[i].area:
+                upper["z0"] = lower["z1"]
+                upper["base_from"] = "wall_below"
+                cut += 1
+                break
+    return {"walls_cut_where_they_doubled": cut}
+
+
 def _direction(g):
     dx, dy = g["p1"][0] - g["p0"][0], g["p1"][1] - g["p0"][1]
     length = math.hypot(dx, dy)
@@ -981,8 +1057,11 @@ def mark_exterior_floors(building) -> dict:
 
 def apply(building) -> dict:
     report = {}
+    report.update(leave_out_beyond_plot(building))
+    report.update(leave_out_openings_off_their_storey(building))
     report.update(walls_from_level(building))
     report.update(walls_to_level_above(building))
+    report.update(walls_once_in_height(building))
     report.update(merge_wall_runs(building))
     report.update(merge_wall_lines(building))
     report.update(curtain_wall_infill(building))

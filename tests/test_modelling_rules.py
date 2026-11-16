@@ -225,6 +225,44 @@ class GroundUnified(unittest.TestCase):
         self.assertAlmostEqual(joined["area_m2"], 150 - 4, delta=0.5)
 
 
+class LeftOutAndDoubled(unittest.TestCase):
+    def test_a_floor_mostly_outside_the_plot_is_left_out_and_listed(self):
+        b = {"levels": {"G": {"z": 0.0}}, "site": {"plot": {"ring": [[0, 0], [10, 0], [10, 10], [0, 10]]}},
+             "elements": [floor("in", "G", [(0, 0), (10, 0), (10, 10), (0, 10)]), floor("edge", "G", [(8, 0), (11, 0), (11, 10), (8, 10)]),
+                          floor("road", "G", [(9, 0), (30, 0), (30, 10), (9, 10)])]}
+        report = conventions.leave_out_beyond_plot(b)
+        self.assertEqual([e["id"] for e in b["elements"]], ["in", "edge"])
+        self.assertEqual((report["floors_left_out_beyond_the_plot"], b["left_out"][0]["id"]), (1, "road"))
+        self.assertIn("outside the plot", b["left_out"][0]["reason"])
+
+    def test_with_no_plot_nothing_is_left_out(self):
+        b = {"levels": {"G": {"z": 0.0}}, "elements": [floor("road", "G", [(9, 0), (30, 0), (30, 10), (9, 10)])]}
+        self.assertEqual(conventions.leave_out_beyond_plot(b)["floors_left_out_beyond_the_plot"], 0)
+        self.assertEqual(len(b["elements"]), 1)
+
+    def test_an_opening_far_off_its_storey_is_left_out_and_listed(self):
+        def opening(i, z0):
+            return {"id": i, "class": "window", "level": "U", "type": "W", "z0": z0, "height": 1.0}
+        b = {"levels": {"G": {"z": 0.0}, "U": {"z": 3.0}, "V": {"z": 6.0}}, "elements": [],
+             "openings": [opening("ok", 4.0), opening("sunk", -12.0), opening("high", 9.5), opening("low_sill", 2.5)]}
+        report = conventions.leave_out_openings_off_their_storey(b)
+        self.assertEqual([o["id"] for o in b["openings"]], ["ok", "low_sill"])
+        self.assertEqual((report["openings_left_out_off_their_storey"], sorted(r["id"] for r in b["left_out"])), (2, ["high", "sunk"]))
+
+    def test_a_wall_starting_inside_the_wall_below_starts_where_that_one_ends(self):
+        b = {"levels": {"U": {"z": 3.0}, "R": {"z": 6.0}},
+             "elements": [wall("below", "U", (0, 0), (10, 0), z0=3.0, z1=6.0), wall("roof", "R", (0, 0), (10, 0), z0=5.6, z1=7.0),
+                          wall("beside", "R", (0, 5), (10, 5), z0=5.6, z1=7.0), wall("stacked", "R", (0, 0), (10, 0), z0=7.0, z1=8.0)]}
+        report = conventions.walls_once_in_height(b)
+        heights = {e["id"]: e["z0"] for e in b["elements"]}
+        self.assertEqual(heights, {"below": 3.0, "roof": 6.0, "beside": 5.6, "stacked": 7.0})
+        self.assertEqual(report["walls_cut_where_they_doubled"], 1)
+
+    def test_a_wall_through_two_storeys_beside_a_short_one_is_left_alone(self):
+        b = {"levels": {"U": {"z": 3.0}}, "elements": [wall("tall", "U", (0, 0), (10, 0), z0=0.0, z1=6.0), wall("short", "U", (0, 0), (10, 0), z0=3.0, z1=4.0)]}
+        self.assertEqual(conventions.walls_once_in_height(b)["walls_cut_where_they_doubled"], 0)
+
+
 class GroundSurfaces(unittest.TestCase):
     """Paving, and ground that lets water in, are two kinds of floor on the ground level."""
 

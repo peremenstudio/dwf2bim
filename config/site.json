@@ -34,6 +34,11 @@
     "site_wall_min_m": 0.3,
     "site_wall_shift_m": 0.35,
     "ground_same_height_m": 0.05,
+    "beyond_plot_share": 0.5,
+    "wall_double_max_m": 1.0,
+    "wall_double_min_overlap": 0.5,
+    "opening_below_level_m": 1.0,
+    "opening_above_next_level_m": 1.0,
     "permeable_ground_words": "אדמה|דשא|גינון|חלחול|שתיל|מצע גן|Soil|Grass|Lawn|Garden|Planting",
     "ground_bridge_m": 0.4,
     "enclosure_gap_m": 0.1,
@@ -80,16 +85,16 @@
     "beside_m": 0.3
   },
   "quality": {
-    "_comment": "The model's verdict. A value over 'review' asks for a person's look, over 'failed' says not to use the model as it is. Shares are of the elements of that kind.",
+    "_comment": "The model's verdict. A value over 'review' asks for a person's look, over 'failed' says not to use the model as it is. Shares are of the elements of that kind. The system that reads the models checks storeys, areas and the building's limits, so those decide; a stray element is listed and does not hold a model back until there are many.",
     "limits": {
-      "unresolved_share": {"review": 0.03, "failed": 0.25},
-      "unsupported_share": {"review": 0.0, "failed": 0.1},
-      "openings_not_in_a_wall_share": {"review": 0.02, "failed": 0.3},
+      "unresolved_share": {"review": 0.1, "failed": 0.25},
+      "unsupported_share": {"review": 0.02, "failed": 0.1},
+      "openings_not_in_a_wall_share": {"review": 0.05, "failed": 0.3},
       "floors_off_their_area_share": {"review": 0.1},
-      "weak_plan_links": {"review": 0},
-      "unclassified_families": {"review": 0}
+      "weak_plan_links": {"review": 0}
     },
-    "area_plan_min_fit": 0.8
+    "area_plan_min_fit": 0.8,
+    "storey_area_tolerance": 0.05
   },
   "storey_slab": {"from_level": "L01", "same_height_m": 0.05, "bridge_m": 0.3},
   "mass_as_floor": {"max_thickness_m": 0.6, "min_area_m2": 0.5, "max_share_on_a_slab": 0.5},

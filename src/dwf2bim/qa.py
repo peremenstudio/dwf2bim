@@ -573,6 +573,10 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
     out += [f"- Openings without a host wall (not cut): {sum(1 for o in b['openings'] if not o.get('host'))}"]
     stairs = [e for e in b["elements"] if e["class"] == "stair"]
     out += [f"- Stairs: {len(stairs)}, way up read from the plans on {sum(1 for e in stairs if e['geometry'].get('direction_checked'))}. Each is rebuilt in Revit from flights; the IFC shows only the treads visible in plan"]
+    if b.get("left_out"):
+        out += ["", "## Left out by a rule", "", "Not built, for the reason given. Check that each reason holds.", "",
+                "| Id | Class | Level | Type | Reason |", "|---|---|---|---|---|"]
+        out += [f"| {r['id']} | {r['class']} | {r['level']} | {r['type']} | {r['reason']} |" for r in b["left_out"]]
     hanging = (b.get("support") or {}).get("unsupported", [])
     out += ["", "## Standing on nothing", "",
             f"Elements with nothing under them, and doors or windows not in a wall: **{len(hanging)}**. They are red in `qa/preview_3d*.png`."]
@@ -645,8 +649,10 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
         out += ["## Floor outlines", "",
                 "Each storey's main floor and balconies are outlined first, and its floors are built from the outlines. "
                 "See `qa/contour_<level>.png` (main floor red, balconies orange) and the layers in the plan DXFs and `views/CONTOUR_<level>.dxf`.", "",
-                "| Level | Main floor m2 | Shafts | Balconies | Balconies m2 | From | Drawn floors joined into the main floor |", "|---|---:|---:|---:|---:|---|---:|"]
-        out += [f"| {x['level']} | {x['main_m2']} | {x['shafts']} | {x['balconies']} | {x['balconies_m2']} | {x['from']} | {x['floors_joined_into_it']} |"
+                "| Level | Main floor m2 | Shafts | Balconies | Balconies m2 | Area plan m2 | Floors over area plan | From | Drawn floors joined into the main floor |",
+                "|---|---:|---:|---:|---:|---:|---:|---|---:|"]
+        out += [f"| {x['level']} | {x['main_m2']} | {x['shafts']} | {x['balconies']} | {x['balconies_m2']} | {x.get('area_plan_m2') or ''} | "
+                f"{x.get('floors_over_area_plan') or ''} | {x['from']} | {x['floors_joined_into_it']} |"
                 for x in outlines["storeys"]]
         out += ["", f"Drawn floors replaced by the outlines: {len(outlines['floors_replaced'])}", ""]
         closed = [(x["level"], h) for x in outlines["storeys"] for h in x.get("holes_closed", [])]

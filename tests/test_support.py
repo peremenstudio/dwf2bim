@@ -90,11 +90,23 @@ class Verdict(unittest.TestCase):
         out = self.build([wall("g", (0, 0), (5, 0), 0.0, 3.0, "L00"), floor("s", SQUARE, 2.8, 3.0)])
         self.assertEqual((out["verdict"], out["reasons"]), ("ready", []))
 
-    def test_an_element_in_the_air_asks_for_review(self):
+    def test_one_stray_element_among_many_does_not_hold_the_model_back(self):
         out = self.build([wall("g", (0, 0), (5, 0), 0.0, 3.0, "L00"), floor("s", SQUARE, 2.8, 3.0)] +
-                         [wall(f"k{n}", (n, 1), (n, 4), 0.0, 3.0, "L00") for n in range(1, 30)] + [wall("w", (40, 0), (45, 0), 3.0, 6.0)])
+                         [wall(f"k{n}", (n / 20, 1), (n / 20, 4), 0.0, 3.0, "L00") for n in range(1, 99)] + [wall("w", (40, 0), (45, 0), 3.0, 6.0)])
+        self.assertEqual(out["verdict"], "ready")
+        self.assertEqual(out["unsupported_by_class"], {"wall": 1})  # still listed
+
+    def test_many_elements_in_the_air_ask_for_review(self):
+        out = self.build([wall("g", (0, 0), (5, 0), 0.0, 3.0, "L00"), floor("s", SQUARE, 2.8, 3.0)] +
+                         [wall(f"k{n}", (n / 20, 1), (n / 20, 4), 0.0, 3.0, "L00") for n in range(1, 56)] +
+                         [wall(f"w{n}", (40 + n, 0), (40 + n, 3), 3.0, 6.0) for n in range(3)])
         self.assertEqual(out["verdict"], "review")
         self.assertTrue(any("unsupported_share" in r for r in out["reasons"]))
+
+    def test_a_storey_whose_floors_differ_from_the_area_plan_asks_for_review(self):
+        storeys = [{"level": "L01", "floors_over_area_plan": 1.01}, {"level": "L02", "floors_over_area_plan": 0.9}, {"level": "L03", "floors_over_area_plan": None}]
+        out = self.build([wall("g", (0, 0), (5, 0), 0.0, 3.0, "L00")], modelling={"floor_contours": {"storeys": storeys}})
+        self.assertEqual((out["verdict"], out["metrics"]["storeys_off_their_area_plan"]), ("review", ["L02"]))
 
     def test_many_elements_not_rebuilt_fail_the_model(self):
         out = self.build([wall("g", (0, 0), (5, 0), 0.0, 3.0, "L00")], unresolved=[{"id": str(n), "class": "wall"} for n in range(5)])

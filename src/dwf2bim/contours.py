@@ -304,11 +304,16 @@ def apply(building) -> dict:
         gone |= {r["id"] for r in balconies if r["id"] not in used}
         building["elements"] = [r for r in building["elements"] if r["id"] not in gone] + new
         contours[lid] = {"main": _slab_outline(out["main"]), "balconies": [_slab_outline(b) for b in out["balconies"]]}
+        # against the area plan: its cells without the voids cover what the storey's floors cover
+        plan = next((a for a in building.get("areas", []) if lid in a["levels"] and area_plan_is_sure(a, RULES["trusted_area_fit"])), None)
+        plan_m2 = round(sum(c["model_area"] for c in plan["cells"] if c["c"] not in VOID_CODES), 1) if plan else None
+        built_m2 = out["main"].area + sum(b.area for b in out["balconies"])
         report["storeys"].append({"level": lid, "main_m2": round(out["main"].area, 1), "balconies": len(out["balconies"]),
                                   "balconies_m2": round(sum(b.area for b in out["balconies"]), 1), "holes": out["holes"],
                                   "from": out["source"], "walls": out["walls"], "floors_joined_into_it": len(inside),
                                   "shafts": len(carrier["geometry"]["shafts"]), "shaft_reasons": out["shaft_reasons"],
-                                  "holes_closed": out["holes_closed"]})
+                                  "holes_closed": out["holes_closed"], "area_plan_m2": plan_m2,
+                                  "floors_over_area_plan": round(built_m2 / plan_m2, 3) if plan_m2 else None})
         report["floors_replaced"] += sorted(gone)
     building["contours"] = contours
     return report
