@@ -87,6 +87,7 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     building = ex.run()
     building["sections"] = ex.section_marks(building)
     building["shaft_hints"] = ex.shaft_hints()
+    building["ground_cover"] = ex.ground_cover()
     ex.unresolved_outlines(building["unresolved"])
     _log(f"  elements={len(building['elements'])} openings={len(building['openings'])} unresolved={len(building['unresolved'])}")
 

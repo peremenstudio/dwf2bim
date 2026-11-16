@@ -34,6 +34,7 @@
     "site_wall_min_m": 0.3,
     "site_wall_shift_m": 0.35,
     "ground_same_height_m": 0.05,
+    "permeable_ground_words": "אדמה|דשא|גינון|חלחול|שתיל|מצע גן|Soil|Grass|Lawn|Garden|Planting",
     "ground_bridge_m": 0.4,
     "enclosure_gap_m": 0.1,
     "ground_fill_min_m2": 0.05,

@@ -225,6 +225,39 @@ class GroundUnified(unittest.TestCase):
         self.assertAlmostEqual(joined["area_m2"], 150 - 4, delta=0.5)
 
 
+class GroundSurfaces(unittest.TestCase):
+    """Paving, and ground that lets water in, are two kinds of floor on the ground level."""
+
+    def plot(self, elements, **more):
+        return dict({"levels": {"G": {"z": 0.0}, "U": {"z": 3.0}}, "site": {"plot": {"ring": [[0, 0], [20, 0], [20, 10], [0, 10]]}},
+                     "elements": elements, "unresolved": []}, **more)
+
+    def test_the_type_name_says_which_kind_a_floor_is(self):
+        self.assertEqual(conventions.ground_surface({"source_type": "דשא 40"}), "permeable")
+        self.assertEqual(conventions.ground_surface({"source_type": "x", "type": "Soil 40"}), "permeable")
+        self.assertEqual(conventions.ground_surface({"source_type": "ריצוף חוץ"}), "paved")
+
+    def test_lawn_and_paving_of_one_height_stay_two_floors(self):
+        lawn = floor("lawn", "G", [(5, 0), (10, 0), (10, 10), (5, 10)], 0.0)
+        lawn["source_type"] = "דשא"
+        b = self.plot([floor("s", "U", [(0, 0), (5, 0), (5, 10), (0, 10)], 3.0, "main"), lawn,
+                       floor("paving", "G", [(10, 0), (20, 0), (20, 10), (10, 10)], 0.0)])
+        conventions.unify_ground_floors(b)
+        report = conventions.mark_ground_surfaces(b)
+        kinds = {e["id"]: e["geometry"].get("surface") for e in b["elements"] if e["level"] == "G"}
+        self.assertEqual(kinds, {"lawn": "permeable", "paving": "paved"})
+        self.assertEqual(report["ground_surface_m2"], {"paved": 100.0, "permeable": 50.0})
+
+    def test_a_gap_over_soil_left_out_as_site_is_filled_as_soil_not_as_the_paving_beside_it(self):
+        soil = {"id": "soil", "type": "Soil", "source_type": "אדמה", "polygons": [{"outer": [[10, 0], [20, 0], [20, 10], [10, 10]], "holes": []}]}
+        b = self.plot([floor("paving", "G", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.0)], ground_cover=[soil])
+        report = conventions.fill_ground_floors(b)
+        self.assertEqual(len(report["ground_floors_added"]), 1)
+        fill = b["elements"][-1]
+        self.assertEqual((fill["source_type"], fill["geometry"]["surface"], fill["cover_from"]), ("אדמה", "permeable", "soil"))
+        self.assertEqual(fill["height_source"], "inferred")
+
+
 class ExteriorFloors(unittest.TestCase):
     def test_balconies_ground_outside_and_roofs_are_exterior(self):
         b = {"levels": {"G": {"z": 0.0}, "U": {"z": 3.0}, "R": {"z": 6.0}},

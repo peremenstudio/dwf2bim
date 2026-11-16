@@ -364,6 +364,24 @@ class Extractor:
             out["pieces"] = _polys_out(pieces, 0.003)
         return out
 
+    def ground_cover(self) -> list:
+        """Floors of the ground level left out of the model as site, such as bare soil: where they lie and what they are.
+
+        They are not built as drawn, but the ground floor that fills their place takes their kind from them.
+        """
+        out = []
+        for el in self.elements.values():
+            type_name = el.props.get("Type Name")
+            if self.rules.classify(el.family, type_name) != "site" or self.rules.classify(el.family) != "floor":
+                continue
+            level = self.levels.get(_level_of(el))
+            if level is None or abs(level["z"]) > 0.01:
+                continue
+            g = self.floor_geometry(el)
+            if g and g.get("polygons"):
+                out.append({"id": el.id, "type": english(type_name), "source_type": type_name, "polygons": g["polygons"]})
+        return out
+
     def shaft_hints(self) -> list:
         """Where a lift or a shaft is drawn in plan: a floor stays open there.
 

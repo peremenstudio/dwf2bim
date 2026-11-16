@@ -624,7 +624,9 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
                 f"- Curved walls built from arcs: {rules.get('curved_walls', 0)}, in {rules.get('curved_wall_pieces', 0)} pieces",
                 f"- Exterior walls, to get exterior plaster in Revit: {rules['exterior_walls']} (curved walls not marked: {rules['curved_walls_not_marked']}). Ground level walls get no plaster.",
                 f"- Ground floors added inside the plot (inferred): {len(rules.get('ground_floors_added', []))}, "
-                f"{round(sum(r['area_m2'] for r in rules.get('ground_floors_added', [])), 1)} m2. Only stairs stay open.", ""]
+                f"{round(sum(r['area_m2'] for r in rules.get('ground_floors_added', [])), 1)} m2. Only stairs stay open.",
+                f"- Ground level floors by kind: paved {rules.get('ground_surface_m2', {}).get('paved', 0)} m2, "
+                f"letting water in (soil, lawn) {rules.get('ground_surface_m2', {}).get('permeable', 0)} m2", ""]
         if rules.get("ground_filled_with_care"):
             out += ["Ground floors filled where the drawing has none, to check:", "", "| Floor | At | Area m2 | Why |", "|---|---|---:|---|"]
             out += [f"| {r['id']} | {r['where']} | {r['area_m2']} | {r['reason']} |" for r in rules["ground_filled_with_care"]]

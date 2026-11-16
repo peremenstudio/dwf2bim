@@ -5,6 +5,7 @@ Each rule is set in config/site.json under "modelling", and what it changed goes
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 
 from shapely.geometry import LineString, Point, Polygon
@@ -491,6 +492,28 @@ def site_walls_inside_plot(building) -> dict:
     return {"site_walls_changed_at_the_plot_line": changed}
 
 
+_PERMEABLE = re.compile(RULES["permeable_ground_words"], re.IGNORECASE)
+
+
+def ground_surface(rec) -> str:
+    """A ground floor is paved, or it lets water seep in, as soil and lawn do. Its type's name says which."""
+    name = "{} {}".format(rec.get("source_type") or "", rec.get("type") or "")
+    return "permeable" if _PERMEABLE.search(name) else "paved"
+
+
+def mark_ground_surfaces(building) -> dict:
+    """Write each ground level floor's kind on it, and sum the areas of both kinds."""
+    ground = next((lid for lid, info in building["levels"].items() if abs(info["z"]) < 0.01), None)
+    areas = {"paved": 0.0, "permeable": 0.0}
+    for rec in building["elements"]:
+        if rec["class"] == "floor" and rec["level"] == ground and rec["geometry"].get("polygons"):
+            kind = rec["geometry"].get("surface") or ground_surface(rec)
+            rec["geometry"]["surface"] = kind
+            shape = _shape(rec)
+            areas[kind] += shape.area if shape is not None else 0.0
+    return {"ground_surface_m2": {k: round(v, 1) for k, v in areas.items()}}
+
+
 def fill_ground_floors(building) -> dict:
     """Inside the plot, the ground level has a floor everywhere: each gap between its floors gets one.
 
@@ -515,8 +538,16 @@ def fill_ground_floors(building) -> dict:
     built = unary_union([s for s in shapes.values() if s is not None] + [wall_area] + stairs)
     gaps = _difference(make_valid(Polygon(plot)), built)
     added, care = [], []
-    pieces = [g for g in getattr(gaps, "geoms", [gaps]) if g.geom_type == "Polygon" and g.area >= RULES["ground_fill_min_m2"]]
-    for n, gap in enumerate(pieces):
+    # where the drawing shows bare soil or another cover left out as site, the fill is of that kind, not of the paving beside it
+    cover = [(c, unary_union([make_valid(Polygon(p["outer"], p.get("holes") or [])) for p in c["polygons"] if len(p["outer"]) >= 3]))
+             for c in building.get("ground_cover", [])]
+    covered = unary_union([s for _, s in cover]) if cover else Polygon()
+    pieces = []
+    for g in getattr(gaps, "geoms", [gaps]):
+        parts = [(g, None)] if covered.is_empty else [(g.intersection(covered), True), (_difference(g, covered), None)]
+        for part, on_cover in parts:
+            pieces += [(q, on_cover) for q in getattr(part, "geoms", [part]) if q.geom_type == "Polygon" and q.area >= RULES["ground_fill_min_m2"]]
+    for n, (gap, on_cover) in enumerate(pieces):
         edge = gap.exterior
         walled = edge.intersection(wall_area.buffer(0.02)).length / edge.length if edge.length else 0.0
         where = [round(c, 2) for c in gap.representative_point().coords[0]]
@@ -529,8 +560,12 @@ def fill_ground_floors(building) -> dict:
         rec = {k: v for k, v in source.items() if k not in ("geometry", "ifc_guid", "id")}
         rec.update(id="{}_fill{}".format(source["id"], n), ifc_guid=None, height_source="inferred", cloned_from=source["id"],
                    geometry={"kind": "extrusion", "polygons": _slab_outline(gap), "source": "ground_fill", "slab_role": "ground_fill"})
+        if on_cover:
+            drawn = max(cover, key=lambda c: c[1].intersection(gap).area)[0]
+            rec.update(type=drawn["type"], source_type=drawn["source_type"], cover_from=drawn["id"])
+            rec["geometry"]["surface"] = "permeable" if _PERMEABLE.search("{} {}".format(drawn["source_type"], drawn["type"])) else "paved"
         building["elements"].append(rec)
-        added.append({"id": rec["id"], "continues": source["id"], "type": source.get("source_type"), "area_m2": round(gap.area, 2)})
+        added.append({"id": rec["id"], "continues": source["id"], "type": rec.get("source_type"), "area_m2": round(gap.area, 2)})
         over = [u["id"] for u, s in unbuilt if s.intersection(gap).area > RULES["ground_fill_min_m2"]]
         if over or walled >= RULES["ground_fill_walled_share"]:
             care.append({"where": where, "area_m2": round(gap.area, 2), "id": rec["id"],
@@ -559,8 +594,10 @@ def unify_ground_floors(building) -> dict:
     unbuilt = [make_valid(Polygon(u["plan_outline"])) for u in building.get("unresolved", [])
                if u.get("level") == ground and len(u.get("plan_outline") or []) >= 3]
     groups = []
-    for rec in sorted(outside, key=lambda r: r["z1"]):
-        if groups and rec["z1"] - groups[-1][-1]["z1"] <= RULES["ground_same_height_m"]:
+    # paving and ground that lets water in stay two floors, also at one height
+    kind = {r["id"]: r["geometry"].get("surface") or ground_surface(r) for r in outside}
+    for rec in sorted(outside, key=lambda r: (kind[r["id"]], r["z1"])):
+        if groups and kind[rec["id"]] == kind[groups[-1][-1]["id"]] and rec["z1"] - groups[-1][-1]["z1"] <= RULES["ground_same_height_m"]:
             groups[-1].append(rec)
         else:
             groups.append([rec])
@@ -587,7 +624,8 @@ def unify_ground_floors(building) -> dict:
         kept["geometry"]["slab_role"] = "ground"
         kept["geometry"]["joined_from"] = [r["id"] for r in group if r is not kept]
         gone.update(r["id"] for r in group if r is not kept)
-        joined.append({"id": kept["id"], "type": main_type, "top_m": kept["z1"], "floors_joined": len(group), "area_m2": round(grown.area, 1)})
+        joined.append({"id": kept["id"], "type": main_type, "top_m": kept["z1"], "floors_joined": len(group), "area_m2": round(grown.area, 1),
+                       "surface": kind[kept["id"]]})
     building["elements"] = [r for r in building["elements"] if r["id"] not in gone]
     return {"ground_floors_joined": joined}
 
@@ -961,5 +999,6 @@ def apply(building) -> dict:
     report.update(fill_basement_floors(building))
     report.update(mark_exterior_floors(building))
     report.update(unify_ground_floors(building))
+    report.update(mark_ground_surfaces(building))
     building["modelling"] = report
     return report
