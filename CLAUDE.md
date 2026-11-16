@@ -10,14 +10,14 @@ Builds a native Revit model from a building's permit documents. Code, names, out
 
 Follow [docs/BUILD_PROTOCOL.md](docs/BUILD_PROTOCOL.md). Change the protocol there when the stages change. What the product is for, the rules a good model keeps and the roadmap are in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md).
 
-Skills in `.claude/skills/`: `build-model`, `review-model`, `fix-model`, `next-milestone`.
+Skills in `.claude/skills/`: `build-model`, `review-model`, `fix-model`, `next-milestone`, `choose-model`. Follow `choose-model` on any task with more than one part: hard parts on Fable, the rest on Opus 5.5.
 
 ## Rules
 - A Revit property beats a measurement, and a measurement beats an inference. Each element records its source.
-- Never drop an element silently: it is either modelled, excluded by configuration, or listed as unresolved.
+- Never drop an element silently: it is either modelled, excluded by configuration, listed as unresolved, or listed as left out by a rule with its reason.
 - A new family goes in `config/classification.json`, a new term in `config/glossary.json`, an archive document type in `config/archive.json`. Do not hard-code them.
 - A new message from the server that a person should read needs its Hebrew in `MESSAGES` in `ui.html`. Anything not listed shows in English.
-- The decoder must raise on an unknown opcode. A silent desync once made it stop at 5 of 73 views.
+- The decoder must raise on an unknown opcode. A silent desync once made it stop at 5 of 73 views. An opcode read with the right length and the wrong meaning is as bad: an arc read as a line once threw every coordinate after it.
 
 ## For each fix: this model, or all models?
 Decide before writing it, and say which it is when reporting it.

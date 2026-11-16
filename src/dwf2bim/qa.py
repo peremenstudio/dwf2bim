@@ -612,6 +612,7 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
             out += [f"- Survey building line against the Revit sheet: worst corner {site['building_line_vs_revit_sheet_m']} m, areas {site['building_lines'][0]['property_area']} and {site.get('building_line_area_on_revit_sheet')} m2."]
         placement = site.get("placement")
         if placement:
+            out += [f"- The plot was found on the survey map by {site.get('plot_found_by', 'the boundary colour')}."]
             out += [f"- Placement: rotation {placement['rotation_deg']} deg, internal origin at E {placement['easting']}, N {placement['northing']}, elevation {site.get('datum_elevation')}. Worst corner against the survey: {placement['fit_max_m']} m."]
         else:
             out += ["- The model is not placed."]

@@ -709,15 +709,22 @@ class SiteBuilder:
             self.b["issues"].append("No survey map: the plot and building lines are built, but the model is not placed.")
             return
         corners = survey_corners(survey_sheet)
-        if not corners:
-            self.b["issues"].append("Survey map read, but its plot boundary was not found (survey_plot_stroke in config/site.json): the model is not placed.")
+        fit = fit_rigid(drop_collinear(plot["ring"]), drop_collinear(corners)) if corners else None
+        found_by = "the boundary's colour"
+        if fit is None or float(fit[3].max()) > FIT_LIMIT_M:
+            # the boundary is drawn in another colour, or with other corners: look for the plot's shape on the map
+            from . import survey
+
+            by_shape = survey.find_plot_by_shape(drop_collinear(plot["ring"]), survey.map_segments(survey_sheet))
+            if by_shape is not None:
+                fit, corners, found_by = by_shape[:4], by_shape[4], "the plot's shape"
+        if fit is None:
+            self.b["issues"].append("Survey map read, but the plot was found on it neither by the boundary's colour "
+                                    "(survey_plot_stroke in config/site.json) nor by its shape: the model is not placed.")
             return
         site["survey_corners_itm"] = [[round(a, 3), round(b, 3)] for a, b in corners]
         site["survey_area"] = round(Polygon(corners).area, 2)
-        fit = fit_rigid(drop_collinear(plot["ring"]), drop_collinear(corners))
-        if fit is None:
-            self.b["issues"].append("Plot corners differ between the Revit sheet and the survey: the model is not placed.")
-            return
+        site["plot_found_by"] = found_by
         theta, tx, ty, res = fit
         worst = float(res.max())
         site["placement"] = {

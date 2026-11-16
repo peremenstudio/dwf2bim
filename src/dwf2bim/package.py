@@ -56,6 +56,12 @@ def _parse_objects(data: bytes) -> tuple[dict, dict]:
     return elements, node_to_element
 
 
+def is_dwf(path) -> bool:
+    """A classic DWF package, by its content, whatever the file is called."""
+    with open(path, "rb") as fh:
+        return fh.read(6) == b"(DWF V"
+
+
 def load(path: str | Path) -> list[Sheet]:
     path = Path(path)
     with open(path, "rb") as fh:

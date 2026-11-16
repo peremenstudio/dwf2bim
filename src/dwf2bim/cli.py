@@ -10,7 +10,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.validate
 
-from . import conventions, dwfx, dynamo, fetch, ifc_export, overrides, package, qa, site, support, views as views_mod, xps
+from . import conventions, dwfx, dynamo, fetch, ifc_export, overrides, package, qa, site, support, survey as survey_mod, views as views_mod, xps
 from .extract import Extractor
 from .names import level_id
 
@@ -43,6 +43,8 @@ def classify_folder(folder: Path) -> dict:
         role = roles.get(f.name)
         if role == "architecture" or (not role and f.suffix.lower() == ".dwf"):
             found["building"] = f
+        elif role == "survey" and package.is_dwf(f):
+            found[role] = survey_mod.load_dwf(f)  # a survey map in DWF form
         elif role in ("area", "survey"):
             found[role] = xps.load(f)[0]
         elif f.suffix.lower() == ".dwfx":

@@ -66,6 +66,7 @@ Order matters: openings need walls, and floors use walls to fill hidden areas.
 | 3 | Railing | Centre path: parallel rails collapse to one line, lines chain at corners. Kept in `building.json`; IFC shows it as a mass 10 cm wide | `Base Level` + `Base Offset` + `Railing Height`, else lowest point in sections |
 | 4 | Stair | Evenly spaced parallel plan lines become treads | Base level + riser height per tread |
 | 5 | Mullion, panel, generic | Convex outline in plan | Range measured in sections |
+| 5b | Column | Its cut in plan: round with a diameter, or a rectangle with its sides and turn | Base and top levels with their offsets |
 | 6 | Typical floors | A plan named like `03-04` covers both floors, and the level with no plan of its own becomes an **exact copy** of the level the plan shows: walls, floors, railings, generics and openings. A wall already standing there, rising from another level, is used instead of a copy. Source elements with no twin are left out and listed in the report. | Copied, moved one storey |
 | 6b | Other missing elements | Same family and type, same size within 3 cm, nearest level with geometry, and only if no wall already stands there. **Marked as inferred.** | Own properties |
 | 7 | Door, window | Hosted on the nearest wall by plan position; centred on the symbol's extent along the wall axis | Level + `Sill Height`, `Height`; `Width` |
@@ -79,7 +80,8 @@ Output: `building.json`, the neutral model that all later stages read.
 ### 4b. Survey map, plot and building lines, area plan
 A project folder under `DWF/` holds the building DWF and two DWFX sheets, told apart by their content.
 
-1. **Plot line:** the survey map's blue boundary, followed end to end into a ring in ITM.
+0. **The map's form:** a survey map is read as DWFX or as DWF. A DWF states its units in the W2D stream, which gives map coordinates directly.
+1. **Plot line:** the survey map's blue boundary, followed end to end into a ring in ITM. When that colour gives no ring, or one that does not fit, the plot is found by its shape: its sharp corners, as the Revit sheet draws them, are looked for among the map's corners under one rotation and one shift, and its straight edges must lie on drawn lines. Points along a rounded corner are left out of the match. The report says which way found the plot.
 2. **Building line:** the survey map's red dashes inside the plot, collapsed to edges. Dash length keeps out dimension lines and parcel extensions of the same colour. Open building lines appear only on the Revit sheet, as `Property` elements.
 3. **Placement:** the plot on the Revit sheet is fitted to the survey's plot. A corner on a straight edge is dropped, and the fit is rigid (rotation and shift, no scale). Limit: 10 cm at the worst corner, otherwise reported. The survey's lines are brought into the model by this fit. With no survey, the lines on the Revit sheet are used.
 4. **Area plan:** each panel gives floor number, height and a table of polygon number, code and area. The face around each number label is its cell. A line end that stops just short of another line may be joined only if the face still matches the table area. Only the boundaries of numbered cells become area lines, so a fence or any other line in no cell stays out. A floor listed as `3, 4` serves both levels.
@@ -94,9 +96,14 @@ Before any floor is built, each storey above the ground gets two kinds of outlin
 
 Area plan cells count only on a storey where the area plan holds at least 80% of the walls. The outlines are written in red to the plan DXFs and to `views/CONTOUR_<level>.dxf`, on the layers `DWF2BIM_MAIN_FLOOR`, `DWF2BIM_BALCONY_FLOOR` and `DWF2BIM_SHAFT`, and drawn on the plan in `qa/contour_<level>.png`. The storey then gets one main floor from its outline, of the type that covers most of it, and one floor per balcony, of the balcony slab it covers most. A drawn floor at another height inside the main floor, such as a lowered bathroom, stays and is cut out of it.
 
+### 4a2. A project's own corrections
+`overrides.json` in the project folder may leave named elements out and replace a storey's main floor, balconies or openings. These are project exceptions: they change that project only, and each one applied is listed in the report under "Project exceptions". See `src/dwf2bim/overrides.py`.
+
 ### 4c. Modelling rules
 These make the model clean to build in Revit, and are set under `modelling` in `config/site.json`. The report lists what each changed.
 
+0. **What is not part of the building is left out, and listed.** A floor lying mostly outside the plot, such as a sidewalk or a road, and a door or window more than a metre below its level or above the next one. Each is listed in the report under "Left out by a rule" with its reason.
+1b. **No two walls in one place over one height.** A wall that starts inside the wall below it, as roof walls drawn from under their level do, starts where that wall ends.
 1. **Walls start at their level.** A wall drawn down through the slab under it is raised to sit on it; its top stays. Ground floor and roof walls, and those on the top level, keep their drawn heights.
 2a. **Walls carry on along their line.** Pieces on one line, touching or up to 30 cm apart, at the same height and with one face flush, become the longer piece even when drawn with another type; their doors and windows move to it. A shelter's walls (in the area plan's shelter-wall cells where the plan fits, or named MMD/ממ"ד) are a real change and stay apart. Pieces that took another type are listed.
 2. **Walls meet floor to floor.** A wall that stops up to a metre under the level above runs up to that level, to meet the wall standing there. Walls of one kind that continue each other on one line become one wall, and their doors and windows move to it.
@@ -152,6 +159,8 @@ IFC import gives fixed geometry whose type cannot be swapped, so editable models
 5. Revit Areas are created from the area plan right after the model, on area plans cleared first and with no snapping, so they show the DWF's lines. Then compare with `python -m dwf2bim compare-areas OUTPUT/<project>`: `AREA_COMPARISON.md` and `qa/area_compare_<level>.png` show cells, areas against the table, and lines found on one side only. Turn the 2D plot and building lines into Property Lines by hand, as described in `revit/README.md`.
 6. Replace `DWF floor` elements, which stand for thin plates of other families, with your own where needed. Posts, bars and masses already covered by a slab are not built, and are listed in the report.
 
+A column is a native structural column. Its family comes from the template, or else is loaded from Revit's own library (`library_families` in `config/revit_mapping.json`), and a type of the column's size is made from it. With no family to be had, the column is built as a mass and the log says so. Loaded families are listed in the log.
+
 Everything built is native, and fixed geometry (DirectShape) is not used. A pergola, or any mass drawn as separate slats and beams, becomes one `DWF floor` per piece. An element that cannot be built natively is reported instead.
 
 Each level's floor plan shows its own DWF plan, imported from `views/<plan>.dxf` into that view only, origin to origin; plan DXFs are written in the model's coordinates for this. A typical storey shows the plan it was copied from. Each section line in the DWF's plans becomes a section view; the side it looks to is measured from the elements the DWF's section drawing shares with the plan, and the section head decides when too few are shared. Plans and sections take the scope box named `scope_box_name` in `config/revit_mapping.json`. Revit's API cannot create a scope box, so without one the plans are cropped to the plot and the log says to draw it. Walls are joined with the wall they stand on.
@@ -170,6 +179,7 @@ The IFC remains useful as a quick geometry check.
 
 | Limit | Effect | Planned fix |
 |---|---|---|
+| Beams | Read as `structure` and left out | Native framing, after columns are proven in Revit |
 | Needs Revit object data | A DWF from AutoCAD, or exported without object data, is refused | Geometry-only route |
 | DWFX as a building sheet | Read only as a survey or area plan | Building DWFX needs a sample file |
 | Elements seen only in sections or elevations | Most mullions, some panels and generics are unresolved | Register sections to plans |

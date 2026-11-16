@@ -173,13 +173,26 @@ Each milestone is general (all models) unless it says otherwise. Each ends with 
 | | Milestone | Done when |
 |---|---|---|
 | M1 | **See the faults.** Support check, verdict, red previews, DXF layers without dimensions | Done 2026-11-16 |
-| M2 | **Storey sheets.** The outline gate of 3.1. Done 2026-11-16: holes need a reason, `DWF2BIM_SHAFT`. Open: the area check, the edge check, wall and opening layers, `qa/storey_<level>.png`, `overrides.json`, and a lift drawn on a slab (below) | Every storey of both corpus projects passes the gate or is listed with its reason; the lobby on 6952 L04 to L06 is floored |
+| M2 | **Storey sheets.** The outline gate of 3.1. Done 2026-11-16: holes need a reason, `DWF2BIM_SHAFT`, the area check, `overrides.json`, the lift drawn on a slab. Open: the edge check, wall and opening layers, `qa/storey_<level>.png` | Every storey of both corpus projects passes the gate or is listed with its reason; the lobby on 6952 L04 to L06 is floored |
 | M3 | **Built as a person builds.** Columns and beams built natively, loading families from Revit's library when the template lacks them; ground floors continuous over the plot, with only clearly drawn holes open (the two kinds, paved and for seepage, are done 2026-11-16); one wall per place in height (NO-DOUBLE); ground and basements from one outline per height; site elements outside the plot marked as site (IN-PLOT); openings whose height makes no sense left out and listed | `unsupported_share` is 0 on both projects, with no element dropped silently |
 | M4 | **Revit closes the loop.** `verdict` command merges `revit_build_log.json`; the Dynamo graph's result shows the verdict; a wall Revit moved or an element it removed counts | A model's final verdict is known without opening the model |
 | M5 | **Do not go backwards.** `python -m dwf2bim regress <corpus folder>` rebuilds every project there and compares each `quality.json` with the one kept from the last accepted build | A change that worsens any metric on any corpus project is shown before it is committed |
 | M6 | **Many parcels.** The `batch` command of 3.3, then Revit unattended | A list of 20 parcels runs to a report with no one watching |
 
 M2 comes first because it decides the most. M5 can be built at any point, and the sooner the better: it is small, and every later milestone leans on it.
+
+### State on 2026-11-16, end of day
+
+Done since the table above was measured: the area plans of set-back storeys are placed by anchoring to a floor that sits well; each storey's floors are compared with its area plan (within 1 to 3% on every storey of both projects but one); floors beyond the plot and openings off their storey are left out and listed; doubled walls are cut; columns are built; `overrides.json` is read; survey maps in DWF form are read and the plot is found by its shape. 6625/538 is `ready`. 6952/149 is `review`.
+
+Open, in the order to take them:
+
+1. **The signed permit document** (`היתר (תכנית ומילולי) חתום דיגיטלי`) as a source of the plan and of the survey. It holds the approved DWF or DWFX after its first page, and sometimes the survey as part of a sheet, off its true place, with coordinate marks round it that give the place. Not started: it needs one sample file to learn the layout from.
+2. **6952/149 is not placed.** Its plot is found on the survey neither by colour nor by shape. The survey states 646 m2 and the Revit sheet 641.2, and the map lists the boundary points in a coordinate table. Reading that table is the likely way.
+3. **An architecture file with no Revit object data** stops the build (6638/463, 7047/44). This is the geometry-only route, outside this roadmap, and it now fails more parcels than the survey does.
+4. **6952 L06** has floors at 92% of its area plan: a terrace strip is missing. **6625** has two roof slabs 0.7 m apart, at levels ROOF and ROOF_SUBMISSION, from the same walls.
+5. **Beams** are still left out. **Columns** are untested in Revit: the family load and the size parameters need one real run.
+6. The edge check of M2, and `qa/storey_<level>.png` with wall and opening layers.
 
 ### A Revit MCP server
 
@@ -209,6 +222,9 @@ Answered by the product owner on 2026-11-16.
 | A storey that fails its gate | Built from the best outline, and the model is marked `review` with the reason. A build never stops to wait for an override |
 | What the second system reads | The IFC exported from Revit. So the verdict and each element's sources must be written as Revit parameters that reach the IFC, not only into `quality.json` (M4) |
 
+| The limits of `ready` | The second system checks storeys, areas and the building's limits, not single elements. So those decide the verdict: levels, each storey's floors against its area plan, the placement on the survey. A stray element is listed and holds a model back only when there are many |
+| A missing survey map | Tried in this order: the newest survey of the parcel in any readable form, DWF included; an older survey of the same parcel from an earlier file; the survey drawn inside the signed permit document, placed by the coordinate marks round it |
+
 Still open:
 
-1. **The limits of `ready`.** Today any element standing on nothing makes the model `review`. Is a model with one stray wall usable by the second system, or must `ready` mean zero?
+1. ~~The limits of `ready`.~~ Decided, above. **Earlier wording:** Today any element standing on nothing makes the model `review`. Is a model with one stray wall usable by the second system, or must `ready` mean zero?

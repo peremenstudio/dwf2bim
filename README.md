@@ -25,7 +25,7 @@ If the download does not work, put the files in the `<block>_<parcel>` folder yo
 |---|---|---|
 | Corrected architectural plan | DWF or DWFX, exported from Revit | Yes |
 | Area calculation | DWFX | No, there are no areas without it |
-| Survey map for the permit | DWFX | No, there is no site or true position without it |
+| Survey map for the permit | DWFX or DWF | No, there is no site or true position without it |
 
 It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in the project folder's `fetch_manifest.json`. Files replaced by a newer download move to its `_previous/` folder. The archive's names for these types are in `config/archive.json`, where they can be changed.
 

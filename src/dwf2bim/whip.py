@@ -123,7 +123,15 @@ def decode(buf: bytes, keep_text: bool = True) -> WhipData:
             pos += 8
             cx, cy = ax + dx, ay + dy
             prims.append(Prim("line", [(ax, ay), (cx, cy)], node, view, color, layer, weight))
-        elif op == 0x6C or op == 0x92:  # line 32R (0x92 is the same layout)
+        elif op == 0x92:  # circular arc 32R: centre, radius, start and end angle. Only the centre moves the current point
+            dx, dy = i4(buf, pos)
+            r = _U4.unpack_from(buf, pos + 8)[0]
+            st, en = struct.unpack_from("<HH", buf, pos + 12)
+            pos += 16
+            cx += dx
+            cy += dy
+            prims.append(Prim("ellipse", [(cx, cy)], node, view, color, layer, weight, radius=(r, r, st, en, 0)))
+        elif op == 0x6C:  # line 32R
             dx, dy = i4(buf, pos)
             ax, ay = cx + dx, cy + dy
             dx, dy = i4(buf, pos + 8)
