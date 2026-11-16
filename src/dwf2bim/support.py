@@ -15,7 +15,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from shapely.validation import make_valid
 
-from .site import _CFG
+from .site import _CFG, area_plan_is_sure
 
 RULES = _CFG["support"]
 QUALITY = _CFG["quality"]
@@ -152,6 +152,7 @@ def quality(building, checks=None) -> dict:
         "placed_on_the_survey": bool(site.get("placement")),
         "area_plan_levels": sum(len(a["levels"]) for a in areas),
         "area_plan_worst_fit": min((a.get("walls_inside_share", 0) for a in areas), default=None),
+        "area_plan_levels_not_placed_surely": [lid for a in areas if not area_plan_is_sure(a, QUALITY["area_plan_min_fit"]) for lid in a["levels"]],
     }
     reasons = {"failed": [], "review": []}
     for name, limits in QUALITY["limits"].items():
@@ -166,8 +167,8 @@ def quality(building, checks=None) -> dict:
         reasons["review"].append("the model is not placed on the survey")
     if not areas:
         reasons["review"].append("there is no area plan")
-    elif metrics["area_plan_worst_fit"] < QUALITY["area_plan_min_fit"]:
-        reasons["review"].append(f"an area plan floor holds only {metrics['area_plan_worst_fit']:.0%} of its walls")
+    elif metrics["area_plan_levels_not_placed_surely"]:
+        reasons["review"].append("the area plan is not placed surely on: " + ", ".join(metrics["area_plan_levels_not_placed_surely"]))
     verdict = "failed" if reasons["failed"] else "review" if reasons["review"] else "ready"
     out = {"verdict": verdict, "reasons": reasons["failed"] + reasons["review"], "metrics": metrics,
            "unresolved_by_class": dict(sorted(unresolved.items())), "unsupported_by_class": support["counts"]}

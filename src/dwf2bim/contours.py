@@ -17,7 +17,7 @@ from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 from .extract import _slab_outline
-from .site import _CFG, _difference
+from .site import _CFG, _difference, area_plan_is_sure
 
 RULES = _CFG["contours"]
 BALCONY_CODES = set(_CFG["balcony_codes"])
@@ -47,7 +47,8 @@ def _wall_bodies(walls):
         if g.get("p0") and g.get("p1"):
             out.append(LineString([g["p0"], g["p1"]]).buffer(g["width"] / 2, cap_style=3, join_style=2))
         else:
-            out += [make_valid(Polygon(p["outer"])) for p in g.get("polygons") or [] if len(p["outer"]) >= 3]
+            # with its holes: walls drawn as one ring round a shaft do not fill the shaft
+            out += [make_valid(Polygon(p["outer"], p.get("holes") or [])) for p in g.get("polygons") or [] if len(p["outer"]) >= 3]
     return [s for s in out if not s.is_empty]
 
 
@@ -162,7 +163,7 @@ def lift_cells(building, z):
     found, heights = [], []
     for a in building.get("areas", []):
         cells = [make_valid(Polygon(c["ring"])) for c in a["cells"] if c["c"] in LIFT_CODES]
-        if cells and a.get("walls_inside_share", 0) >= RULES["trusted_area_fit"]:
+        if cells and area_plan_is_sure(a, RULES["trusted_area_fit"]):
             found += cells
             heights += [building["levels"][lid]["z"] for lid in a["levels"] if lid in building["levels"]]
     if not heights or not min(heights) - 0.01 <= z <= max(heights) + 0.01:
@@ -190,7 +191,7 @@ def storey_outlines(building, lid):
     floors = [r for r in building["elements"] if r["class"] == "floor" and r["level"] == lid and r["geometry"].get("polygons")]
     shapes = {r["id"]: _shape(r) for r in floors}
     # the area plan's cells count only where the plan sits well on the walls
-    cells = [c for a in building.get("areas", []) if lid in a["levels"] and a.get("walls_inside_share", 0) >= RULES["trusted_area_fit"]
+    cells = [c for a in building.get("areas", []) if lid in a["levels"] and area_plan_is_sure(a, RULES["trusted_area_fit"])
              for c in a["cells"]]
     balcony_cells = [make_valid(Polygon(c["ring"])) for c in cells if c["c"] in BALCONY_CODES]
     room_cells = [make_valid(Polygon(c["ring"])) for c in cells if c["c"] not in BALCONY_CODES and c["c"] not in NO_SLAB_CODES]

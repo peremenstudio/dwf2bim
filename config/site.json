@@ -51,7 +51,7 @@
     "min_hole_m2": 0.5,
     "void_codes": ["-1", "1010"],
     "lift_codes": ["1010"],
-    "cell_open_already_share": 0.5,
+    "cell_open_already_share": 0.9,
     "hole_hint_share": 0.3,
     "hole_stair_share": 0.5,
     "hole_stair_min_m2": 0.5,

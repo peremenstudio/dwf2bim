@@ -27,6 +27,17 @@ FIT_LIMIT_M = 0.10
 ENVELOPE_WALL_SHARE = 0.10  # more walls than this outside the area plan: do not trust it as an envelope
 TRUSTED_FIT_SHARE = 0.90  # a panel holding this share of its plan's walls anchors the others
 WIDE_FIT_SHARE = 0.80  # a wider search is accepted from this share
+ANCHOR_TRIES = 3  # how many well-placed floors, nearest first, a badly placed panel is tried against
+ANCHOR_SURE_VOTES = 12  # cell corners shared with a well-placed floor that make an anchored panel's place sure
+
+
+def area_plan_is_sure(floor, limit) -> bool:
+    """Whether an area plan floor is known to sit where the model's walls are.
+
+    Either its cells hold the plan's walls, or it was anchored to a floor that does through many shared
+    corners: a set-back storey has walls on its terraces that no cell holds, yet its core is in place.
+    """
+    return floor.get("walls_inside_share", 0) >= limit or floor.get("anchor_votes", 0) >= ANCHOR_SURE_VOTES
 COLLINEAR_SIN = 0.02
 PANEL_GRID = 0.02  # page units, under 4 mm on the sheet's scale
 TABLE_WIDTH = 215.0  # page units from a table's first column to its right edge
@@ -750,7 +761,7 @@ class SiteBuilder:
 
     def areas(self, area_sheet):
         panels = read_area_panels(area_sheet) if area_sheet is not None else []
-        out = []
+        out, placed = [], []
         neighbour = None  # panels run floor by floor, so the last one placed is the closest match
         for panel in panels:
             done = self._fit_panel(panel)
@@ -763,9 +774,24 @@ class SiteBuilder:
                     # the core (lift, stairs) repeats from floor to floor
                     done = self._fit_panel(panel, neighbour)
                     done["fit"] = "anchored_to_the_next_floor"
+                    done["anchor_votes"] = done["fit_votes"]
             if done:
                 out.append(done)
+                placed.append((panel, done))
                 neighbour = {tuple(q) for c in done["cells"] for q in c["ring"]}
+        # a panel still sitting badly is anchored to the nearest floor that sits well, above or below it: the first
+        # pass knows only the panel before it, which for the top floor is none
+        sure = [(panel, done) for panel, done in placed if done["walls_inside_share"] >= WIDE_FIT_SHARE]
+        for panel, done in placed:
+            if done["walls_inside_share"] >= WIDE_FIT_SHARE or not sure:
+                continue
+            floor = sum(panel["floors"]) / len(panel["floors"])
+            for _, anchor in sorted(sure, key=lambda pd: abs(sum(pd[0]["floors"]) / len(pd[0]["floors"]) - floor))[:ANCHOR_TRIES]:
+                again = self._fit_panel(panel, {tuple(q) for c in anchor["cells"] for q in c["ring"]})
+                if again and again["walls_inside_share"] > done["walls_inside_share"]:
+                    again["fit"] = "anchored_to_floor_{}".format(anchor["levels"][0] if anchor["levels"] else "")
+                    again["anchor_votes"] = again["fit_votes"]
+                    out[out.index(done)] = done = again
         self.b["areas"] = out
 
     def _level_for_floor(self, number):
