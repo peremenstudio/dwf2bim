@@ -35,6 +35,15 @@ UNIT_ROW_REACH = 3.2  # page units, half a table row
 
 
 # ---- reading the sheets --------------------------------------------------------
+def itm_to_wgs84(easting, northing):
+    """(longitude, latitude) in degrees of an Israeli Transverse Mercator point, or None without pyproj."""
+    try:
+        from pyproj import Transformer
+    except ImportError:
+        return None
+    return Transformer.from_crs(2039, 4326, always_xy=True).transform(easting, northing)
+
+
 def is_area_sheet(sheet) -> bool:
     return any(_is_header(t, sheet.texts) for t in sheet.texts)
 
@@ -733,6 +742,11 @@ class SiteBuilder:
         else:
             self.b["issues"].append("The survey's building line was not found (survey_building_line in config/site.json): using the line on the Revit sheet.")
         site["placement"]["base_point_model"] = site["plot"]["ring"][0]
+        corner = corners[0]
+        geo = itm_to_wgs84(corner[0], corner[1])
+        if geo is not None:
+            # Revit's site location (latitude, longitude) is apart from its survey coordinates; IFC reads it for IfcSite
+            site["placement"]["latitude"], site["placement"]["longitude"] = round(geo[1], 7), round(geo[0], 7)
 
     def areas(self, area_sheet):
         panels = read_area_panels(area_sheet) if area_sheet is not None else []

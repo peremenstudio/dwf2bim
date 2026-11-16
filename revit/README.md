@@ -92,6 +92,8 @@ The build creates the DWF's levels under their DWF names, each with a floor plan
 - A wall marked exterior gets a type named `<core type> + טיח חוץ 2`, with 2 cm of the material `טיח חוץ` on the outside. Its location line is the core centreline, so the core stays on the DWF's axis, and it is turned so the plaster faces out. Interior walls have no plaster.
 - After the walls and floors, each floor is joined with the walls that cross it. Each wall is also joined with the wall it stands on. The log's `joins` gives the counts.
 - Ground level exterior walls get plaster too.
+- Each wall and floor type gets its Function, which IFC exports as `IsExternal`: Exterior for exterior walls, balconies, the ground outside the building, roofs and generic masses; Interior for the rest. A type wanted both ways gets a copy named with `type_role_suffix` from the mapping.
+- Soil and lawn floors on the ground level (`not_paved_words` in the mapping) get the kit's `IL_NotPaved` on their type. Elsewhere the same type gets a copy without it. Without the kit installed in the file, the log notes it.
 - Last of the model, every wall is joined with each wall it stands on or runs into. Revit undoes a join that would stop a door or window cutting its wall.
 - A curtain wall inferred for doors the DWF hosted in an unexported curtain wall takes the type `curtain_wall_type` from the mapping. It is split at the doors' edges, and those panels become the doors' family.
 

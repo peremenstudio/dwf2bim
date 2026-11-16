@@ -397,6 +397,100 @@ def curved_walls_as_arcs(building) -> dict:
     return {"curved_walls": walls, "curved_wall_pieces": pieces}
 
 
+def fill_basement_floors(building) -> dict:
+    """A basement has a floor everywhere inside its walls: each gap continues the floor beside it.
+
+    Basement slabs are often left out of the drawing or cannot be read; the floor that fills
+    their place is inferred and listed. Stairs stay open.
+    """
+    from .contours import main_outline
+
+    added = []
+    for lid, info in building["levels"].items():
+        if info["z"] >= -0.01:
+            continue
+        walls = [r for r in building["elements"] if r["class"] == "wall" and r["level"] == lid and r["z1"] - r["z0"] >= 2.0]
+        floors = [r for r in building["elements"] if r["class"] == "floor" and r["level"] == lid and r["geometry"].get("polygons")]
+        if len(walls) < 4 or not floors:
+            continue
+        region = main_outline(walls, 1.0, 0.2)
+        if region is None:
+            continue
+        shapes = {r["id"]: _shape(r) for r in floors}
+        stairs = [make_valid(Polygon(t["polygon"])) for r in building["elements"] if r["class"] == "stair" and r["level"] == lid
+                  for t in r["geometry"].get("treads") or [] if len(t.get("polygon") or []) >= 3]
+        built = unary_union([v for v in shapes.values() if v is not None] + _wall_shapes(walls) + stairs)
+        gaps = _difference(region, built)
+        for n, gap in enumerate(g for g in getattr(gaps, "geoms", [gaps]) if g.geom_type == "Polygon" and g.area >= RULES["basement_fill_min_m2"]):
+            edge = gap.exterior
+            source_id = max((rid for rid, v in shapes.items() if v is not None),
+                            key=lambda rid: (edge.intersection(shapes[rid].buffer(0.02)).length, -shapes[rid].distance(gap)))
+            source = next(r for r in floors if r["id"] == source_id)
+            rec = {k: v for k, v in source.items() if k not in ("geometry", "ifc_guid", "id")}
+            rec.update(id="{}_fill{}".format(source["id"], n), ifc_guid=None, height_source="inferred", cloned_from=source["id"],
+                       geometry={"kind": "extrusion", "polygons": _slab_outline(gap), "source": "basement_fill", "slab_role": "basement_fill"})
+            building["elements"].append(rec)
+            added.append({"id": rec["id"], "level": lid, "continues": source["id"], "type": source.get("source_type"), "area_m2": round(gap.area, 2)})
+    return {"basement_floors_added": added}
+
+
+def site_walls_inside_plot(building) -> dict:
+    """A ground level wall outside the building stays inside the plot.
+
+    The drawings run site walls past the plot line, or set a boundary wall's axis on it. The part
+    beyond the line is cut off, a wall wholly outside is not built, and a wall that still crosses
+    the line by a little moves in until its outer face is on it. Each change is listed.
+    """
+    plot_ring = ((building.get("site") or {}).get("plot") or {}).get("ring") or []
+    ground = next((lid for lid, info in building["levels"].items() if abs(info["z"]) < 0.01), None)
+    if len(plot_ring) < 3 or ground is None:
+        return {"site_walls_changed_at_the_plot_line": []}
+    plot = make_valid(Polygon(plot_ring))
+    outline = _building_outline(building)
+    walls = _axis_walls(building)
+    changed, gone = [], set()
+    for rec in list(walls.get(ground, [])):
+        g = rec["geometry"]
+        axis = LineString([g["p0"], g["p1"]])
+        body = axis.buffer(g["width"] / 2, cap_style=2)
+        if body.difference(plot).area < 0.005:
+            continue
+        if outline is not None and axis.intersection(outline.buffer(0.3)).length > 0.5 * axis.length:
+            continue  # a wall of the building itself is not a site wall
+        inside = axis.intersection(plot)
+        pieces = [p for p in getattr(inside, "geoms", [inside]) if p.geom_type == "LineString"]
+        if not pieces or max(p.length for p in pieces) < RULES["site_wall_min_m"]:
+            gone.add(rec["id"])
+            changed.append({"id": rec["id"], "change": "outside the plot, not built"})
+            continue
+        piece = max(pieces, key=lambda p: p.length)
+        a, b = piece.coords[0], piece.coords[-1]
+        u = _direction(g)
+        if (b[0] - a[0]) * u[0] + (b[1] - a[1]) * u[1] < 0:
+            a, b = b, a
+        cut = axis.length - piece.length
+        g["p0"], g["p1"] = [round(a[0], 4), round(a[1], 4)], [round(b[0], 4), round(b[1], 4)]
+        note = []
+        if cut > 0.01:
+            note.append("cut {:.2f} m at the plot line".format(cut))
+        poke = LineString([g["p0"], g["p1"]]).buffer(g["width"] / 2, cap_style=2).difference(plot)
+        if poke.area > 0.005:
+            far = max(plot.exterior.distance(Point(c)) for p in getattr(poke, "geoms", [poke]) if p.geom_type == "Polygon" for c in p.exterior.coords)
+            n = (-u[1], u[0])
+            mid = ((g["p0"][0] + g["p1"][0]) / 2, (g["p0"][1] + g["p1"][1]) / 2)
+            inward = 1 if plot.contains(Point(mid[0] + n[0] * 0.5, mid[1] + n[1] * 0.5)) else -1
+            if far <= RULES["site_wall_shift_m"]:
+                _move_wall(rec, inward * (far + 0.002), walls[ground], building.get("openings", []))
+                note.append("moved {:.2f} m in, outer face on the plot line".format(far))
+        if note:
+            changed.append({"id": rec["id"], "change": "; ".join(note)})
+    building["elements"] = [r for r in building["elements"] if r["id"] not in gone]
+    for o in building.get("openings", []):
+        if o.get("host") in gone:
+            o["host"] = None
+    return {"site_walls_changed_at_the_plot_line": changed}
+
+
 def fill_ground_floors(building) -> dict:
     """Inside the plot, the ground level has a floor everywhere: each gap between its floors gets one.
 
@@ -805,8 +899,46 @@ def mark_exterior_walls(building) -> dict:
         rec["exterior_side"] = side
         if abs(levels[rec["level"]]["z"]) < 0.01 and not RULES["plaster_on_ground_level"]:
             rec["plaster"] = False
+        if plot_line is not None and LineString([g["p0"], g["p1"]]).distance(plot_line) <= g["width"] / 2 + RULES["plot_line_no_plaster_m"]:
+            rec["plaster"] = False  # a wall on the plot line gets no plaster on the neighbour's side
         marked += 1
     return {"exterior_walls": marked, "curved_walls_not_marked": skipped}
+
+
+def mark_exterior_floors(building) -> dict:
+    """Which floors are outside the building: balconies, the ground outside it, roofs, and slabs past a storey's outline.
+
+    Revit exports this as Pset_SlabCommon.IsExternal, which a checker reads to find balconies and the envelope.
+    """
+    levels = building["levels"]
+    top = max(info["z"] for info in levels.values()) if levels else None
+    roofs = {lid for lid, info in levels.items() if info["z"] == top or _is_roof(info.get("source_name") or lid)}
+    outline = _building_outline(building)
+    storeys = {}
+    for lid, c in (building.get("contours") or {}).items():
+        polys = [Polygon(p["outer"]) for p in c.get("main") or [] if len(p["outer"]) >= 3]
+        if polys:
+            storeys[lid] = unary_union(polys)
+    counts = {"exterior": 0, "interior": 0}
+    for rec in building["elements"]:
+        if rec["class"] not in ("floor", "generic"):
+            continue
+        z = levels.get(rec["level"], {}).get("z", 0.0)
+        shape = _shape(rec)
+        role = rec["geometry"].get("slab_role")
+        if rec["class"] == "generic" or role == "balcony" or rec["level"] in roofs:
+            exterior = True
+        elif shape is None:
+            exterior = False
+        elif abs(z) < 0.01:
+            exterior = outline is not None and shape.difference(outline).area >= 0.5 * shape.area
+        elif z > 0.01 and rec["level"] in storeys:
+            exterior = shape.difference(storeys[rec["level"]]).area >= 0.5 * shape.area
+        else:
+            exterior = False
+        rec["exterior"] = exterior
+        counts["exterior" if exterior else "interior"] += 1
+    return {"floors_exterior": counts["exterior"], "floors_interior": counts["interior"]}
 
 
 def apply(building) -> dict:
@@ -819,12 +951,15 @@ def apply(building) -> dict:
     report.update(curved_walls_as_arcs(building))
     mark_exterior_walls(building)  # first, so exterior walls align face to face
     report.update(align_walls_to_below(building))
+    report.update(site_walls_inside_plot(building))
     report.update(mark_exterior_walls(building))
     from . import contours  # imported here: it reads the site settings this module also reads
     report["floor_contours"] = contours.apply(building)
     report.update(extend_slabs_to_wall_core(building))
     report.update(remove_floor_overlaps(building))
     report.update(fill_ground_floors(building))
+    report.update(fill_basement_floors(building))
+    report.update(mark_exterior_floors(building))
     report.update(unify_ground_floors(building))
     building["modelling"] = report
     return report

@@ -219,6 +219,7 @@ if IN_REVIT:
         BoundingBoxIntersectsFilter,
         BoundingBoxXYZ,
         CurveArray,
+        Element,
         DWGImportOptions,
         ImportInstance,
         ImportPlacement,
@@ -325,7 +326,7 @@ class FailureHandler:
 def id_value(element_id):
     """An ElementId's number: Value from Revit 2024, IntegerValue before it."""
     value = getattr(element_id, "Value", None)
-    return value if value is not None else element_id.IntegerValue
+    return value if value is not None else getattr(element_id, "IntegerValue", element_id)
 
 
 def name_of(e):
@@ -349,6 +350,7 @@ class Builder:
         self.floor_types = {name_of(t): t for t in self._collect(FloorType) if not getattr(t, "IsFoundationSlab", False)}
         self.railing_types = {name_of(t): t for t in self._collect(RailingType)}
         self.symbols = {"door": self._symbols(BuiltInCategory.OST_Doors), "window": self._symbols(BuiltInCategory.OST_Windows)}
+        self.type_roles = {}  # type id -> (exterior, not paved) it was given
 
     # ---- lookups
     def _collect(self, cls):
@@ -578,6 +580,44 @@ class Builder:
         self._section("wall")["substitutions"][name] = "exterior plaster added to " + name_of(core_type)
         return new_type
 
+    def _type_for_role(self, host_type, pool, exterior, not_paved=False):
+        """The type with its Function (exterior or interior) and IL_NotPaved set as this element needs.
+
+        Both are type parameters, so a type wanted both ways gets a copy for the second way, named
+        with the mapping's suffix. IFC reads Function as IsExternal.
+        """
+        role = (bool(exterior), bool(not_paved))
+        have = self.type_roles.get(id_value(host_type.Id))
+        if have is None or have == role:
+            chosen = host_type
+        else:
+            suffix = self.map.get("type_role_suffix", {})
+            name = name_of(host_type) + (suffix.get("exterior", " - exterior") if exterior else suffix.get("interior", " - interior"))
+            if not_paved:
+                name += suffix.get("not_paved", " - not paved")
+            chosen = pool.get(name)
+            if chosen is None:
+                chosen = host_type.Duplicate(name)
+                pool[name] = chosen
+            if self.type_roles.get(id_value(chosen.Id)) not in (None, role):
+                return chosen  # already given another role: keep it rather than flip it under other elements
+        p = chosen.get_Parameter(BuiltInParameter.FUNCTION_PARAM)
+        if p is not None and not p.IsReadOnly:
+            p.Set(1 if exterior else 0)
+        flag = chosen.LookupParameter(self.map.get("not_paved_parameter", "IL_NotPaved"))
+        if flag is not None and not flag.IsReadOnly:
+            flag.Set(1 if not_paved else 0)
+        elif not_paved:
+            self._section("floor").setdefault("notes", []).append("no IL_NotPaved parameter: run the kit installer in this file")
+        self.type_roles[id_value(chosen.Id)] = role
+        return chosen
+
+    def _not_paved(self, rec):
+        """Soil or lawn on the ground level only: the kit's IL_NotPaved marks unpaved ground."""
+        z = self.b["levels"].get(rec.get("level"), {}).get("z")
+        words = self.map.get("not_paved_words", [])
+        return z is not None and abs(z) < 0.01 and any(w in clean_name(rec.get("source_type")) for w in words)
+
     def _core_on_axis(self, wall):
         """The DWF's axis is the wall's core, so a plaster layer adds to the outside without moving it."""
         p = wall.get_Parameter(BuiltInParameter.WALL_KEY_REF_PARAM)
@@ -643,14 +683,22 @@ class Builder:
         return new_type
 
     def join_walls_and_floors(self):
-        """Join each floor with the walls that cross it, so their shared faces come out clean."""
-        joined, failed = 0, 0
+        """Join each floor with the walls that cross it, so their shared faces come out clean.
+
+        A wall that holds a door or window is left out: the window's head or shutter box reaches the
+        slab, and Revit then stops it cutting the wall.
+        """
+        joined, failed, skipped = 0, 0, [0]
+        hosts = {id_value(self.created[o["host"]]) for o in self.b.get("openings", []) if o.get("host") in self.created}
         floors = [f for f in self._collect(Floor) if (f.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS).AsString() or "").startswith(STAMP)]
         for batch in chunks(floors, BATCH):
             def run():
                 counts = [0, 0]
                 for floor in batch:
                     for wall in FilteredElementCollector(self.doc).OfClass(Wall).WherePasses(ElementIntersectsElementFilter(floor)):
+                        if id_value(wall.Id) in hosts:
+                            skipped[0] += 1
+                            continue
                         if JoinGeometryUtils.AreElementsJoined(self.doc, floor, wall):
                             continue
                         try:
@@ -663,7 +711,7 @@ class Builder:
             if self._transact("DWF joins", run) and holder:
                 joined += holder[0][0]
                 failed += holder[0][1]
-        self.log["joins"] = {"walls_joined_to_floors": joined, "could_not_join": failed}
+        self.log["joins"] = {"walls_joined_to_floors": joined, "could_not_join": failed, "walls_with_openings_not_joined_to_floors": skipped[0]}
 
     def _stamped(self, cls):
         return [e for e in self._collect(cls) if (e.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS).AsString() or "").startswith(STAMP)]
@@ -671,9 +719,10 @@ class Builder:
     def join_all_walls(self):
         """Last of the model: join every wall with each wall it stands on or runs into, so the joins come out clean.
 
-        Revit undoes a join that would stop a door or window cutting its wall, and the log counts it.
+        A wall that holds a door or window is left out: joined, Revit may stop the opening cutting it.
         """
-        joined, failed = [0], [0]
+        joined, failed, skipped = [0], [0], [0]
+        hosts = {id_value(self.created[o["host"]]) for o in self.b.get("openings", []) if o.get("host") in self.created}
         walls = [w for w in self._stamped(Wall) if w.WallType.Kind == WallKind.Basic]
         reach = ft(0.02)
         for batch in chunks(walls, BATCH):
@@ -687,6 +736,9 @@ class Builder:
                     for other in FilteredElementCollector(self.doc).OfClass(Wall).WherePasses(BoundingBoxIntersectsFilter(Outline(low, high))):
                         if id_value(other.Id) <= id_value(wall.Id) or other.WallType.Kind != WallKind.Basic:
                             continue
+                        if id_value(wall.Id) in hosts or id_value(other.Id) in hosts:
+                            skipped[0] += 1
+                            continue
                         if JoinGeometryUtils.AreElementsJoined(self.doc, wall, other):
                             continue
                         try:
@@ -695,7 +747,8 @@ class Builder:
                         except Exception:
                             failed[0] += 1
             self._transact("DWF wall joins", run)
-        self.log.setdefault("joins", {}).update({"walls_joined_to_walls": joined[0], "walls_not_joined": failed[0]})
+        self.log.setdefault("joins", {}).update({"walls_joined_to_walls": joined[0], "walls_not_joined": failed[0],
+                                                 "left_unjoined_as_they_hold_openings": skipped[0]})
 
     def _curtain_type(self, embedded=False):
         """The mapping's curtain wall type; for one standing inside a wall, a copy of it that embeds itself."""
@@ -708,7 +761,12 @@ class Builder:
         found = next((t for t in kinds if name_of(t) == name), None)
         if found is None:
             found = base.Duplicate(name)
-            found.get_Parameter(BuiltInParameter.AUTO_EMBED).Set(1)
+            # the parameter's built-in name differs between Revit versions, so it is looked up by name too
+            embed = next((found.get_Parameter(getattr(BuiltInParameter, key)) for key in ("AUTO_EMBED", "WALL_AUTO_EMBED") if hasattr(BuiltInParameter, key)), None)
+            embed = embed or found.LookupParameter("Automatically Embed")
+            if embed is None or embed.IsReadOnly:
+                raise ValueError("the curtain wall type has no 'Automatically Embed' parameter")
+            embed.Set(1)
         return found
 
     def _make_curtain(self, rec):
@@ -769,8 +827,16 @@ class Builder:
                     for pid in grid.GetPanelIds():
                         panel = self.doc.GetElement(pid)
                         if p["from"] < along(panel) < p["to"]:
-                            panel.Pinned = False
-                            panel.ChangeTypeId(symbol.Id)
+                            try:
+                                panel.Pinned = False  # a panel of a type's own grid is pinned; one of a grid line added here is not
+                            except Exception:
+                                pass
+                            # Python.NET picks the wrong overload of ChangeTypeId on a Panel, so the type is set as its Symbol,
+                            # or else through the static form
+                            try:
+                                panel.Symbol = symbol
+                            except Exception:
+                                Element.ChangeTypeId(self.doc, List[ElementId]([panel.Id]), symbol.Id)
                             result["doors"] += 1
                             break
 
@@ -912,6 +978,7 @@ class Builder:
         wall_type = self._host_type("wall", self.wall_types, rec.get("source_type"), g["width"], "wall_types", "wall_base_by_word")
         if rec.get("exterior_side") and rec.get("plaster", True):
             wall_type = self._plastered_type(wall_type) or wall_type
+        wall_type = self._type_for_role(wall_type, self.wall_types, bool(rec.get("exterior_side")))
         level = self._level_for(rec)
         z = level.Elevation
         a, b = g["p0"], g["p1"]
@@ -982,6 +1049,7 @@ class Builder:
             raise ValueError("no outline")
         floor_type = self._finished_floor_type(rec, rec["z1"] - rec["z0"]) or self._host_type(
             "floor", self.floor_types, rec.get("source_type"), rec["z1"] - rec["z0"], "floor_types", "floor_base_by_word")
+        floor_type = self._type_for_role(floor_type, self.floor_types, rec.get("exterior", False), self._not_paved(rec))
         level = self._level_for(rec)
         first = None
         problem = None
@@ -1207,6 +1275,7 @@ class Builder:
         level = self._level_for(rec)
         name = "DWF floor {:.0f}".format(max(1, height * 100))
         floor_type = self._host_type("floor", self.floor_types, name, height, "floor_types", "floor_base_by_word")
+        floor_type = self._type_for_role(floor_type, self.floor_types, rec.get("exterior", True))
         first = None
         for poly in polys:
             floor = Floor.Create(self.doc, self._loops({"outer": poly["outer"]}, level.Elevation), floor_type.Id, level.Id)
@@ -1417,6 +1486,17 @@ class Builder:
             result["base_point_internal"] = [round(position.X * FT, 3), round(position.Y * FT, 3), round(position.Z * FT, 3)]
         except Exception as ex:
             result["base_point_error"] = str(ex)
+        # the site's geographic location is apart from the survey coordinates; IFC writes it as IfcSite's latitude and longitude
+        if place.get("latitude") is not None:
+            try:
+                def geo():
+                    site = self.doc.SiteLocation
+                    site.Latitude = math.radians(place["latitude"])
+                    site.Longitude = math.radians(place["longitude"])
+                self._transact("DWF site location", geo)
+                result["latitude_longitude"] = [place["latitude"], place["longitude"]]
+            except Exception as ex:
+                result["site_location_error"] = str(ex)
         self.log["placement"] = result
 
     # ---- order of work

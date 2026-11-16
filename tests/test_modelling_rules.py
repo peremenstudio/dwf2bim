@@ -137,6 +137,31 @@ class GroundFloors(unittest.TestCase):
         self.assertIn("r", report["ground_filled_with_care"][0]["reason"])
 
 
+class PlotLine(unittest.TestCase):
+    def test_a_site_wall_is_cut_at_the_plot_line_and_moved_in_to_it(self):
+        b = {"levels": {"G": {"z": 0.0}, "U": {"z": 3.0}},
+             "site": {"plot": {"ring": [[0, 0], [20, 0], [20, 20], [0, 20]]}},
+             "elements": [floor("s", "U", [(5, 5), (15, 5), (15, 15), (5, 15)], 3.0, "main"),
+                          wall("long", "G", (2, 0), (25, 0)),  # on the plot line, and 5 m past its end
+                          wall("away", "G", (22, 5), (22, 9))],  # wholly outside
+             "openings": []}
+        report = conventions.site_walls_inside_plot(b)
+        walls = {r["id"]: r for r in b["elements"] if r["class"] == "wall"}
+        self.assertNotIn("away", walls)
+        g = walls["long"]["geometry"]
+        self.assertAlmostEqual(max(g["p0"][0], g["p1"][0]), 20.0, places=2)
+        self.assertAlmostEqual(g["p0"][1], 0.1, places=2)  # its outer face is now on the plot line
+        self.assertEqual(len(report["site_walls_changed_at_the_plot_line"]), 2)
+
+    def test_a_basement_gap_inside_the_walls_gets_a_floor(self):
+        walls = [wall(i, "B", p0, p1, z0=-3.0, z1=0.0) for i, p0, p1 in
+                 (("n", (0, 10), (10, 10)), ("e", (10, 10), (10, 0)), ("s", (10, 0), (0, 0)), ("w", (0, 0), (0, 10)))]
+        b = {"levels": {"B": {"z": -3.0}}, "elements": walls + [floor("f", "B", [(0, 0), (10, 0), (10, 6), (0, 6)], -3.0)]}
+        report = conventions.fill_basement_floors(b)
+        self.assertEqual(len(report["basement_floors_added"]), 1)
+        self.assertGreater(report["basement_floors_added"][0]["area_m2"], 3.0)
+
+
 class SlabAtTheCore(unittest.TestCase):
     def test_a_slab_drawn_past_the_core_stops_at_it_but_one_that_carries_on_stays(self):
         b = {"levels": {"U": {"z": 3.0}},
@@ -198,6 +223,19 @@ class GroundUnified(unittest.TestCase):
         self.assertEqual(sorted(ids), ["b", "p", "s"])  # a joins the larger b, the planter stays
         joined = report["ground_floors_joined"][0]
         self.assertAlmostEqual(joined["area_m2"], 150 - 4, delta=0.5)
+
+
+class ExteriorFloors(unittest.TestCase):
+    def test_balconies_ground_outside_and_roofs_are_exterior(self):
+        b = {"levels": {"G": {"z": 0.0}, "U": {"z": 3.0}, "R": {"z": 6.0}},
+             "elements": [floor("main", "U", [(0, 0), (10, 0), (10, 10), (0, 10)], 3.0, "main"),
+                          floor("bal", "U", [(10, 0), (12, 0), (12, 4), (10, 4)], 2.98, "balcony"),
+                          floor("lobby", "G", [(1, 1), (9, 1), (9, 9), (1, 9)]),
+                          floor("garden", "G", [(10, 0), (20, 0), (20, 10), (10, 10)]),
+                          floor("roof", "R", [(0, 0), (10, 0), (10, 10), (0, 10)], 6.0)]}
+        conventions.mark_exterior_floors(b)
+        ext = {r["id"]: r["exterior"] for r in b["elements"]}
+        self.assertEqual(ext, {"main": False, "bal": True, "lobby": False, "garden": True, "roof": True})
 
 
 class Arcs(unittest.TestCase):

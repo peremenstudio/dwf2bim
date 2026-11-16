@@ -99,6 +99,19 @@ class FakeType:
         self.Kind = "basic"
         self.Id = name
         self.structures = []
+        self.params = {}
+
+    def _param(self, key):
+        p = self.params.get(key)
+        if p is None:
+            p = self.params[key] = mock.MagicMock(IsReadOnly=False)
+        return p
+
+    def get_Parameter(self, key):
+        return self._param(("builtin", str(key)))
+
+    def LookupParameter(self, name):
+        return self._param(name)
 
     def GetCompoundStructure(self):
         cs = mock.MagicMock()
@@ -133,6 +146,7 @@ class MockedBuild(unittest.TestCase):
         b.floor_types = {n: FakeType(n) for n in pool_names}
         b.railing_types = {"Rail A": FakeType("Rail A")}
         b.symbols = {"door": {}, "window": {}}
+        b.type_roles = {}
         return m, b
 
     def wall(self):
@@ -182,6 +196,23 @@ class MockedBuild(unittest.TestCase):
             rec = dict(self.wall(), exterior_side=side)
             b.make_wall(rec)
             self.assertAlmostEqual(m.XYZ.call_args_list[0][0][0], first / 0.3048)
+
+    def test_a_type_wanted_inside_and_outside_gets_a_copy_for_the_outside(self):
+        m, b = self.build(("Concrete 33",))
+        inner = b._type_for_role(b.wall_types["Concrete 33"], b.wall_types, False)
+        outer = b._type_for_role(b.wall_types["Concrete 33"], b.wall_types, True)
+        self.assertIs(inner, b.wall_types["Concrete 33"])
+        self.assertEqual(outer.Name, "Concrete 33 - exterior")
+        self.assertEqual(outer.get_Parameter(m.BuiltInParameter.FUNCTION_PARAM).Set.call_args[0][0], 1)
+        self.assertEqual(inner.get_Parameter(m.BuiltInParameter.FUNCTION_PARAM).Set.call_args[0][0], 0)
+
+    def test_only_ground_soil_is_not_paved(self):
+        m, b = self.build()
+        b.b = {"levels": {"L00": {"z": 0.0}, "L05": {"z": 17.5}}}
+        b.map = {"not_paved_words": ["דשא", "אדמה"]}
+        self.assertTrue(b._not_paved({"level": "L00", "source_type": "פיתוח - דשא 40"}))
+        self.assertFalse(b._not_paved({"level": "L05", "source_type": "אדמה ערוגה 40"}))
+        self.assertFalse(b._not_paved({"level": "L00", "source_type": "ריצוף חוץ 40"}))
 
     def test_a_ground_wall_marked_without_plaster_keeps_its_core_type(self):
         m, b = self.build()

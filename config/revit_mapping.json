@@ -78,6 +78,9 @@
   },
   "section_name": "חתך {name}",
   "curtain_wall_type": "זכוכית בלבד",
+  "type_role_suffix": {"exterior": " - חוץ", "interior": " - פנים", "not_paved": " - לא מרוצף"},
+  "not_paved_parameter": "IL_NotPaved",
+  "not_paved_words": ["דשא", "אדמה", "גינון", "ערוגה"],
   "scope_box_name": "DWF",
   "exterior_plaster": {
     "_comment": "Exterior walls get a type with this plaster on their outside face. The core stays where the DWF put it.",

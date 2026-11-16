@@ -4,3 +4,4 @@ ezdxf>=1.3
 pillow>=10
 numpy>=1.26
 playwright>=1.40
+pyproj>=3.0
