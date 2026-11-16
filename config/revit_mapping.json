@@ -1,6 +1,12 @@
 {
   "_comment": "How DWF families and types map to the Revit template (filled from revit/catalog/6133-385 v6.json). See revit/README.md.",
   "site_line_names": {"plot": "קו מגרש", "building": "קו בניין"},
+  "library_families": {
+    "_comment": "Families loaded from Revit's own library when the template has none. File names are tried in order, under the library folders Revit lists.",
+    "column_rectangle": ["M_Concrete-Rectangular-Column.rfa", "Concrete-Rectangular-Column.rfa"],
+    "column_round": ["M_Concrete-Round-Column.rfa", "Concrete-Round-Column.rfa"],
+    "size_parameters": {"b": ["b", "Width", "רוחב"], "h": ["h", "Depth", "עומק"], "diameter": ["b", "Diameter", "d", "קוטר"]}
+  },
   "default_railing_type": "מעקה מרובע + חלקות אופקיות",
   "default_door_family": "עץ - ציר",
   "default_window_family": "הזזה דו כנפי",

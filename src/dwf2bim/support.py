@@ -62,7 +62,7 @@ def check(building) -> dict:
         shape = footprint(rec)
         if shape is not None:
             records.append(dict(rec, _fp=shape))
-    walls = _Index([r for r in records if r["class"] == "wall"])
+    walls = _Index([r for r in records if r["class"] in ("wall", "column")])  # what carries from below
     floors = _Index([r for r in records if r["class"] == "floor"])
     found = []
 

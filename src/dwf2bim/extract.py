@@ -501,6 +501,25 @@ class Extractor:
             return None
         return 1 if cov > 0 else -1
 
+    def column_geometry(self, el):
+        """A column's section where it is cut in plan: round or rectangular, with its centre and its turn."""
+        view, prims = self.plan_prims(el.id, el.props.get("Base Level") or _level_of(el))
+        if view is None or not prims:
+            return None
+        cut = self._contours(view, prims)
+        shape = max(cut, key=lambda g: g.area) if cut else MultiPoint(self._points(view, prims)).convex_hull
+        if shape.geom_type != "Polygon" or shape.area < 1e-4:
+            return None
+        return column_section(shape, view.key)
+
+    def column_heights(self, el):
+        base, top = self.levels.get(el.props.get("Base Level")), self.levels.get(el.props.get("Top Level"))
+        if base is None or top is None:
+            return None
+        z0 = base["z"] + (self._length(el.props.get("Base Offset")) or 0.0)
+        z1 = top["z"] + (self._length(el.props.get("Top Offset")) or 0.0)
+        return (z0, z1, "properties") if z1 > z0 + 0.05 else None
+
     def box_heights(self, el, level):
         zr = self.z_range(el.id)
         if zr and zr[1] - zr[0] > 0.01:
@@ -893,6 +912,15 @@ class Extractor:
             g, h = self.wall_geometry(el), self.wall_heights(el)
         elif cls == "floor":
             g, h = self.floor_geometry(el), self.floor_heights(el)
+        elif cls == "column":
+            g = self.column_geometry(el)
+            h = self.column_heights(el) or self.box_heights(el, level)
+            if g is not None and h is not None:
+                rec = self._record(el, cls, g, h, el.props.get("Base Level") if el.props.get("Base Level") in self.levels else level)
+                rec["top_level"] = level_id(el.props.get("Top Level")) if el.props.get("Top Level") in self.levels else None
+                rec["base_offset"] = self._length(el.props.get("Base Offset")) or 0.0
+                rec["top_offset"] = self._length(el.props.get("Top Offset")) or 0.0
+                return rec
         elif cls == "stair":
             g = self.stair_geometry(el)
             lv = self.levels.get(el.props.get("Base Level"))
@@ -1095,6 +1123,23 @@ class Extractor:
                 width=round(width, 4), height=round(height, 4), host=host, cloned_from=src["id"],
             )
             placed[el.id] = rec
+
+
+def column_section(shape, source_view=None, round_fill=0.9) -> dict:
+    """Describe a column's cut outline: a circle fills about 79% of its bounding square, a rectangle all of its own."""
+    box = shape.minimum_rotated_rectangle
+    pts = list(box.exterior.coords)
+    a, b = math.dist(pts[0], pts[1]), math.dist(pts[1], pts[2])
+    centre = shape.centroid
+    out = {"kind": "extrusion", "polygons": _polys_out(shape, 0.002), "source": "plan_cut", "source_view": source_view,
+           "center": [round(centre.x, 4), round(centre.y, 4)]}
+    if abs(a - b) <= 0.05 * max(a, b) and shape.area <= round_fill * a * b:
+        out["section"] = {"shape": "round", "diameter": round((a + b) / 2, 3)}
+    else:
+        long_edge = (pts[0], pts[1]) if a >= b else (pts[1], pts[2])
+        angle = math.degrees(math.atan2(long_edge[1][1] - long_edge[0][1], long_edge[1][0] - long_edge[0][0])) % 180.0
+        out["section"] = {"shape": "rectangle", "b": round(min(a, b), 3), "h": round(max(a, b), 3), "angle_deg": round(angle, 2)}
+    return out
 
 
 def _level_of(el):

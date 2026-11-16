@@ -10,7 +10,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.validate
 
-from . import conventions, dwfx, dynamo, fetch, ifc_export, package, qa, site, support, views as views_mod, xps
+from . import conventions, dwfx, dynamo, fetch, ifc_export, overrides, package, qa, site, support, views as views_mod, xps
 from .extract import Extractor
 from .names import level_id
 
@@ -87,6 +87,8 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     building = ex.run()
     building["sections"] = ex.section_marks(building)
     building["shaft_hints"] = ex.shaft_hints()
+    building["overrides"] = overrides.load(graph_folder)
+    building["overrides_applied"] = overrides.leave_out_elements(building, building["overrides"])
     building["ground_cover"] = ex.ground_cover()
     ex.unresolved_outlines(building["unresolved"])
     _log(f"  elements={len(building['elements'])} openings={len(building['openings'])} unresolved={len(building['unresolved'])}")

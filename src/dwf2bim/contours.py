@@ -250,6 +250,23 @@ def storey_outlines(building, lid):
             "shaft_reasons": [reason for _, reason in shafts], "holes_closed": closed}
 
 
+def with_project_outline(out, fixed):
+    """A storey's outlines with the ones the project's own file gives put in their place."""
+    out = dict(out)
+    main = out["main"]
+    if fixed.get("main_floor"):
+        main = make_valid(Polygon(fixed["main_floor"]))
+        out["holes"], out["shaft_reasons"], out["holes_closed"] = 0, [], []
+    if fixed.get("open"):
+        opened = [make_valid(Polygon(ring)) for ring in fixed["open"]]
+        main = _difference(Polygon(main.exterior) if main.geom_type == "Polygon" else main, unary_union(opened))
+        out["holes"], out["shaft_reasons"] = len(opened), ["project exception"] * len(opened)
+    if fixed.get("balconies") is not None:
+        out["balconies"] = [make_valid(Polygon(ring)) for ring in fixed["balconies"]]
+    out["main"] = main
+    return out
+
+
 def _carrier(candidates, shapes, piece, fallback):
     best = max(candidates, key=lambda r: shapes[r["id"]].intersection(piece).area if shapes[r["id"]] is not None else 0.0, default=None)
     if best is None or shapes[best["id"]] is None or shapes[best["id"]].intersection(piece).area <= 0:
@@ -267,6 +284,10 @@ def apply(building) -> dict:
         out = storey_outlines(building, lid)
         if out is None:
             continue
+        fixed = ((building.get("overrides") or {}).get("storeys") or {}).get(lid)
+        if fixed:
+            out = with_project_outline(out, fixed)
+            report.setdefault("project_exceptions", []).append({"level": lid, "replaced": sorted(k for k in ("main_floor", "balconies", "open") if fixed.get(k))})
         floors = [r for r in building["elements"] if r["class"] == "floor" and r["level"] == lid and r["geometry"].get("polygons")]
         shapes = {r["id"]: _shape(r) for r in floors}
         mains = [r for r in floors if r["geometry"].get("slab_role") in ("main", None)]

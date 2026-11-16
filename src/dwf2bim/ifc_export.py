@@ -15,6 +15,7 @@ _ENTITY = {
     "mullion": "IfcMember",
     "curtain_panel": "IfcPlate",
     "generic": "IfcBuildingElementProxy",
+    "column": "IfcColumn",
     "door": "IfcDoor",
     "window": "IfcWindow",
 }

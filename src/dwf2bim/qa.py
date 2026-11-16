@@ -21,6 +21,7 @@ _SHADE = {
     "mullion": (85, 95, 110),
     "curtain_panel": (150, 200, 230),
     "generic": (165, 145, 120),
+    "column": (150, 150, 160),
     "door": (160, 100, 60),
     "window": (90, 160, 220),
 }
@@ -573,6 +574,13 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
     out += [f"- Openings without a host wall (not cut): {sum(1 for o in b['openings'] if not o.get('host'))}"]
     stairs = [e for e in b["elements"] if e["class"] == "stair"]
     out += [f"- Stairs: {len(stairs)}, way up read from the plans on {sum(1 for e in stairs if e['geometry'].get('direction_checked'))}. Each is rebuilt in Revit from flights; the IFC shows only the treads visible in plan"]
+    exceptions = list(b.get("overrides_applied") or []) + [
+        {"id": x["level"], "what": "outline replaced: " + ", ".join(x["replaced"]), "why": ""}
+        for x in ((b.get("modelling") or {}).get("floor_contours") or {}).get("project_exceptions", [])]
+    if exceptions:
+        out += ["", "## Project exceptions", "", "From this project's `overrides.json`. They change this project only.", "",
+                "| Id or level | What | Why |", "|---|---|---|"]
+        out += [f"| {x['id']} | {x['what']} | {x['why']} |" for x in exceptions]
     if b.get("left_out"):
         out += ["", "## Left out by a rule", "", "Not built, for the reason given. Check that each reason holds.", "",
                 "| Id | Class | Level | Type | Reason |", "|---|---|---|---|---|"]

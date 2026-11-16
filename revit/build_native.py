@@ -238,6 +238,7 @@ if IN_REVIT:
         ElementId,
         ElementIntersectsElementFilter,
         ElementTransformUtils,
+        Family,
         FailureProcessingResult,
         FailureSeverity,
         FamilySymbol,
@@ -1264,6 +1265,71 @@ class Builder:
             loop.Append(Line.CreateBound(XYZ(ft(a[0]), ft(a[1]), level.Elevation), XYZ(ft(b[0]), ft(b[1]), level.Elevation)))
         return Railing.Create(self.doc, loop, railing_type.Id, level.Id)
 
+    # ---- columns: native structural columns, from a family of the template or of Revit's own library
+    def _library_family(self, key):
+        """A family for this need: one already in the file, else loaded from Revit's library. None when neither is found."""
+        import os
+
+        names = (self.map.get("library_families") or {}).get(key) or []
+        wanted = [os.path.splitext(n)[0] for n in names]
+        for family in self._collect(Family):
+            if family.Name in wanted:
+                return family
+        folders = [pair.Value for pair in self.doc.Application.GetLibraryPaths() if pair.Value and os.path.isdir(pair.Value)]
+        for name in names:
+            for folder in folders:
+                for root, _, files in os.walk(folder):
+                    if name in files:
+                        path = os.path.join(root, name)
+                        loaded = self.doc.LoadFamily(path)
+                        self.log.setdefault("families_loaded", []).append({"family": name, "from": path, "loaded": bool(loaded)})
+                        for family in self._collect(Family):
+                            if family.Name == os.path.splitext(name)[0]:
+                                return family
+        self.log.setdefault("families_not_found", []).append({"need": key, "tried": names, "under": folders})
+        return None
+
+    def _column_symbol(self, section):
+        """A column type of this size: found by name, else duplicated from the family's first type and resized."""
+        round_one = section["shape"] == "round"
+        family = self._library_family("column_round" if round_one else "column_rectangle")
+        if family is None:
+            return None
+        sizes = {"diameter": section["diameter"]} if round_one else {"b": section["b"], "h": section["h"]}
+        name = "DWF {:.0f}".format(section["diameter"] * 100) if round_one else "DWF {:.0f}x{:.0f}".format(section["b"] * 100, section["h"] * 100)
+        symbols = [self.doc.GetElement(i) for i in family.GetFamilySymbolIds()]
+        symbol = next((s for s in symbols if name_of(s) == name), None)
+        if symbol is None:
+            symbol = symbols[0].Duplicate(name)
+            names = (self.map.get("library_families") or {}).get("size_parameters") or {}
+            for key, value in sizes.items():
+                if not self._set_first(symbol, {"keys": names.get(key, [key]), "value": value}):
+                    self._section("column")["substitutions"][name] = "size parameter '{}' not found in {}".format(key, family.Name)
+        if not symbol.IsActive:
+            symbol.Activate()
+        return symbol
+
+    def make_column(self, rec):
+        section = rec["geometry"].get("section")
+        symbol = self._column_symbol(section) if section else None
+        if symbol is None:
+            # no column family to be had: the column is still built, as a mass, and the log says so
+            self._section("column")["substitutions"][rec.get("type") or rec["id"]] = "built as a DWF floor piece: no column family"
+            return self.make_mass_floor(rec)
+        level = self._level_for(rec)
+        x, y = rec["geometry"]["center"]
+        column = self.doc.Create.NewFamilyInstance(XYZ(ft(x), ft(y), level.Elevation), symbol, level, StructuralType.Column)
+        top = self.levels.get(rec.get("top_level")) or self._level_above(rec["z1"]) or level
+        column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM).Set(level.Id)
+        column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM).Set(top.Id)
+        column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM).Set(ft(rec["z0"]) - level.Elevation)
+        column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM).Set(ft(rec["z1"]) - top.Elevation)
+        angle = math.radians(section.get("angle_deg", 0.0)) - math.pi / 2  # the family's h runs along its own y
+        if section["shape"] == "rectangle" and abs(angle) > 1e-6:
+            axis = Line.CreateBound(XYZ(ft(x), ft(y), 0), XYZ(ft(x), ft(y), 1))
+            ElementTransformUtils.RotateElement(self.doc, column.Id, axis, angle)
+        return column
+
     def make_mass_floor(self, rec):
         """Any other mass ends up as a floor: its outline, its height as the thickness. Slats drawn apart stay apart."""
         polys = rec["geometry"].get("pieces") or rec["geometry"].get("polygons") or []
@@ -1538,6 +1604,7 @@ class Builder:
             self.build_stairs(by_class.pop("stair", []))
         except Exception as ex:
             self.log["errors"].append("stairs: {}".format(ex))
+        self.process("column", by_class.pop("column", []), self.make_column)
         for cls, records in sorted(by_class.items()):
             self.process(cls, records, self.make_mass_floor)
         try:

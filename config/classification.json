@@ -14,7 +14,7 @@
       {"match": "^Text$", "layer": "NOTES"}
     ]
   },
-  "enabled_classes": ["wall", "floor", "door", "window", "stair", "railing", "mullion", "curtain_panel", "generic"],
+  "enabled_classes": ["wall", "floor", "door", "window", "stair", "railing", "mullion", "curtain_panel", "generic", "column"],
   "type_rules": [
     {"match": "^אדמה$|^אדמה בלבד", "class": "site"}
   ],
@@ -31,10 +31,11 @@
     {"match": "^E_הזזה|^E_ויטרינה|^E_קיפ|^חלון|^Windows?_|^E_ ?2?ממד נגרר|^MP_WN - |^RvZ_WinS|^RvZ_VitrinaS", "class": "window"},
 
     {"match": "^אבן", "class": "site"},
-    {"match": "^Generic Models|^Wood|^עמוד|^דלפק|^Monolithic Landing|^שיפוע", "class": "generic"},
+    {"match": "Column|^עמוד", "class": "column"},
+    {"match": "^Generic Models|^Wood|^דלפק|^Monolithic Landing|^שיפוע", "class": "generic"},
 
     {"match": "Lift", "class": "equipment"},
-    {"match": "^MP_SC - |^MP_SF - |Rectangular Beam|Column", "class": "structure"},
+    {"match": "^MP_SC - |^MP_SF - |Rectangular Beam|Beam", "class": "structure"},
     {"match": "^MP_FUR|^MP_CW|^MP_EE|^MP_SE", "class": "furniture"},
     {"match": "^MP_PF", "class": "plumbing"},
     {"match": "^MP_GM|^MP_ME|^MP_CP - Mail|Pool_Ladder", "class": "equipment"},
