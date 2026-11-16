@@ -106,6 +106,10 @@ Each build writes `model/quality.json`. This part is done; the Revit half is M4.
 
 The limits are in `config/site.json` under `quality`. After the Revit run, `python -m dwf2bim verdict <project folder>` reads `revit_build_log.json` and adds what Revit decided: elements it removed, walls it moved, doors and windows that did not cut. The final verdict is the worse of the two.
 
+### 3.2b Two kinds of model
+
+A parcel whose plans were exported from Revit gives a full model. A parcel drawn in AutoCAD, or with no plan in the archive, gives a model from the area plan alone: storeys, heights, floors, balconies, voids and exterior walls. Both carry the same areas and apartments. `quality.json` states the kind, so the second system knows what it may check: storeys and areas on both, and openings or interior layout only on a full one.
+
 ### 3.3 Many parcels
 
 `python -m dwf2bim batch <file>` takes a list of block and parcel pairs and a save folder. For each it fetches, builds and records the verdict, and goes on when one fails. It writes `batch_report.md` and `batch_report.json`: one row per parcel with the documents found, the verdict, the reasons and the build time. A second run skips parcels already built from the same documents.
@@ -176,8 +180,8 @@ Each milestone is general (all models) unless it says otherwise. Each ends with 
 | M2 | **Storey sheets.** The outline gate of 3.1. Done 2026-11-16: holes need a reason, `DWF2BIM_SHAFT`, the area check, `overrides.json`, the lift drawn on a slab. Open: the edge check, wall and opening layers, `qa/storey_<level>.png` | Every storey of both corpus projects passes the gate or is listed with its reason; the lobby on 6952 L04 to L06 is floored |
 | M3 | **Built as a person builds.** Columns and beams built natively, loading families from Revit's library when the template lacks them; ground floors continuous over the plot, with only clearly drawn holes open (the two kinds, paved and for seepage, are done 2026-11-16); one wall per place in height (NO-DOUBLE); ground and basements from one outline per height; site elements outside the plot marked as site (IN-PLOT); openings whose height makes no sense left out and listed | `unsupported_share` is 0 on both projects, with no element dropped silently |
 | M4 | **Revit closes the loop.** `verdict` command merges `revit_build_log.json`; the Dynamo graph's result shows the verdict; a wall Revit moved or an element it removed counts | A model's final verdict is known without opening the model |
-| M5 | **Do not go backwards.** `python -m dwf2bim regress <corpus folder>` rebuilds every project there and compares each `quality.json` with the one kept from the last accepted build | A change that worsens any metric on any corpus project is shown before it is committed |
-| M6 | **Many parcels.** The `batch` command of 3.3, then Revit unattended | A list of 20 parcels runs to a report with no one watching |
+| M5 | **Do not go backwards.** Done 2026-11-16, tested with stand-in builds only: `python -m dwf2bim regress <corpus folder> [--accept]` rebuilds every project there into a scratch folder and compares each `quality.json` with the one kept in `<corpus>/_baseline/`. What counts as better is in `config/regress.json` | A change that worsens any metric on any corpus project is shown before it is committed |
+| M6 | **Many parcels.** `batch` done 2026-11-16, tested with stand-in runs only: `python -m dwf2bim batch <list file> --folder <save folder> [--local]` writes `batch_report.md` and `.json` after every parcel. Open: Revit unattended | A list of 20 parcels runs to a report with no one watching |
 
 M2 comes first because it decides the most. M5 can be built at any point, and the sooner the better: it is small, and every later milestone leans on it.
 
@@ -189,7 +193,7 @@ Open, in the order to take them:
 
 1. **The signed permit document** (`היתר (תכנית ומילולי) חתום דיגיטלי`) as a source of the plan and of the survey. It holds the approved DWF or DWFX after its first page, and sometimes the survey as part of a sheet, off its true place, with coordinate marks round it that give the place. Not started: it needs one sample file to learn the layout from.
 2. **6952/149 is not placed.** Its plot is found on the survey neither by colour nor by shape. The survey states 646 m2 and the Revit sheet 641.2, and the map lists the boundary points in a coordinate table. Reading that table is the likely way.
-3. **An architecture file with no Revit object data** stops the build (6638/463, 7047/44). This is the geometry-only route, outside this roadmap, and it now fails more parcels than the survey does.
+3. ~~An architecture file with no Revit object data stops the build.~~ Done the same day: such a parcel, or one with no architecture file at all, is built from its area plan alone (6638/463, 7047/44, 6135/137, 7001/45: four of the seven parcels tried so far). Storey areas come out at 99.6 to 100% of the tables. **Placing these models** is built too: the survey's plot is found on the drawing sheet's site plan by its shape, and the ground storey's outline inside it. 6638/463 is placed this way, every floor of every storey inside the plot, and is `ready`. Still unplaced: 6135/137, whose survey draws the plot in black among thousands of lines, so no colour closes it; 7047/44 and 7001/45, whose folders hold no survey yet (they were fetched before DWF surveys were accepted, and need a new fetch).
 4. **6952 L06** has floors at 92% of its area plan: a terrace strip is missing. **6625** has two roof slabs 0.7 m apart, at levels ROOF and ROOF_SUBMISSION, from the same walls.
 5. **Beams** are still left out. **Columns** are untested in Revit: the family load and the size parameters need one real run.
 6. The edge check of M2, and `qa/storey_<level>.png` with wall and opening layers.

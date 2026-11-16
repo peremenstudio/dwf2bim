@@ -28,13 +28,13 @@ If the run stops:
 | Message | Meaning | Do |
 |---|---|---|
 | `No usable document in the archive for: architecture` | No plan in a readable format | Report it. The model cannot be built |
-| `has no Revit object data` | The DWF was not exported from Revit with object data | Report it. Not supported yet |
+| `has no Revit object data`, then `Building from the area plan alone` | The plans were drawn in AutoCAD | Not a failure. The model is built from the area plan: storeys, floors, balconies, voids, exterior walls. Say so plainly, and that it is not placed |
 | `unknown opcode`, or an unknown W2X record | The decoder met something new | Do not make it skip. Fix the decoder, see the fix-model skill |
 
 ## 3. Read the result
 In `<block>_<parcel>/model/`, in this order:
 
-1. `quality.json`: the verdict (`ready`, `review`, `failed`) and its reasons.
+1. `quality.json`: the verdict (`ready`, `review`, `failed`), its reasons, and the `kind`: `full`, or `massing` for a model built from the area plan alone.
 2. `BUILD_REPORT.md`: "Verdict", "Standing on nothing", "Inferred geometry", then the unresolved table.
 3. `qa/preview_3d.png` and `qa/preview_3d_back.png`: red elements stand on nothing.
 4. `qa/contour_<level>.png` for every storey: the main floor in red, balconies in orange. Check that the main floor follows the outer walls, that each balcony is separate, and that every hole is a stair, a lift or a shaft.

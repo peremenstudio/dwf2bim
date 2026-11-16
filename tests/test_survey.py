@@ -22,6 +22,15 @@ def clutter():
            [((180090.0, 668000.0 + k * 9), (180200.0, 668000.0 + k * 9)) for k in range(8)]
 
 
+class Colours(unittest.TestCase):
+    def test_near_colours_are_one_and_far_ones_are_not(self):
+        from dwf2bim import site
+        self.assertTrue(site.same_colour("#0000FF", "#0101FF", 12))
+        self.assertTrue(site.same_colour("#FF0101FF", "#0101FF", 12))  # with an alpha byte in front
+        self.assertFalse(site.same_colour("#0000FF", "#FF0000", 12))
+        self.assertFalse(site.same_colour(None, "#0101FF", 12))
+
+
 class PlotByShape(unittest.TestCase):
     def test_the_plot_is_found_among_other_lines_with_its_rotation_and_shift(self):
         theta, tx, ty = math.radians(-37.0), 180140.0, 668025.0

@@ -107,6 +107,11 @@ class KeepingFiles(unittest.TestCase):
             self.assertEqual(sorted(f.name for f in dest.iterdir() if f.is_file()), ["fetch_manifest.json", "new.dwf"])
             self.assertEqual(sorted(f.name for f in dest.glob("_previous/*/*")), ["old.dwf", "old.dwfx"])
 
+    def test_with_no_architecture_plan_an_area_plan_is_enough_to_build(self):
+        self.assertTrue(fetch.can_build_without(["architecture"], {"area": {}}))
+        self.assertFalse(fetch.can_build_without(["architecture"], {"survey": {}}))
+        self.assertFalse(fetch.can_build_without(["architecture"], {}))
+
     def test_a_file_is_named_by_project_kind_and_filing_date(self):
         self.assertEqual(fetch.clear_name("1_2", "architecture", "25/2/2024", ".dwf"), "1_2_architecture_2024-02-25.dwf")
         self.assertEqual(fetch.clear_name("1_2", "survey", "", ".dwfx"), "1_2_survey_undated.dwfx")

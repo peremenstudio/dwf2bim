@@ -1,0 +1,20 @@
+{
+  "_comment": "How 'python -m dwf2bim regress' compares a project's new quality.json with its accepted one. Only the metrics named here are compared; a missing or empty value on either side is skipped. Numbers closer than 'tolerance' are the same.",
+  "tolerance": 0.001,
+  "verdict_order": ["failed", "review", "ready"],
+  "lower_is_better": [
+    "unresolved_share",
+    "unsupported_share",
+    "openings_not_in_a_wall_share",
+    "floors_off_their_area_share",
+    "weak_plan_links",
+    "unclassified_families"
+  ],
+  "shorter_is_better": [
+    "storeys_off_their_area_plan",
+    "area_plan_levels_not_placed_surely"
+  ],
+  "true_is_better": [
+    "placed_on_the_survey"
+  ]
+}

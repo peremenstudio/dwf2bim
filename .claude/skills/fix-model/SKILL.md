@@ -51,7 +51,7 @@ Then rebuild **every** project in the corpus, not only the one that showed the f
 python -m dwf2bim build "<scratch>\proj\<block>_<parcel>" --out "<scratch>\out"
 ```
 
-Compare each project's `quality.json` and report section counts with those from before the change. Look at the images of the storeys the change touches. A metric that got worse on any project is a finding to report, not to hide.
+`python -m dwf2bim regress "<corpus>"` does both: it rebuilds every project into a scratch folder and compares each `quality.json` with the accepted one in `<corpus>\_baseline\`. Run it with `--accept` only after the person has seen the result. Compare the report section counts too. Look at the images of the storeys the change touches. A metric that got worse on any project is a finding to report, not to hide.
 
 ## 5. Finish
 - When stages or rules changed, update `docs/BUILD_PROTOCOL.md`. When a roadmap item is done, mark it in `docs/PRODUCT_SPEC.md`.

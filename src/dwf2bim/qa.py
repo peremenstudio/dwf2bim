@@ -528,6 +528,10 @@ def render_3d(building, path, azimuth=-55.0, elevation=32.0, size=(2000, 1500), 
 def write_report(path, source_name, building, checks, ifc_counts, manifest, validation, levels_table):
     b = building
     out = [f"# Build report - {source_name}", ""]
+    if b.get("kind") == "massing":
+        out += ["**This model is built from the area plan alone.** The architecture file holds no Revit object data, as a drawing made in AutoCAD does not. "
+                "It has the storeys with their heights, one main floor and its balconies per storey, openings at the plan's voids, and exterior walls. "
+                "It has no interior walls, doors or windows.", ""]
     verdict = b.get("quality")
     if verdict:
         out += [f"## Verdict: {verdict['verdict']}", ""]
@@ -620,7 +624,7 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
             out += [f"- Slabs fitted to the area plan: {site['slab_clip']}."]
         out.append("")
     rules = b.get("modelling")
-    if rules:
+    if rules and "walls_raised_to_level" in rules:
         out += ["## Modelling rules", "",
                 f"- Walls raised to start at their level: {rules['walls_raised_to_level']}. Levels kept as drawn: {', '.join(rules['levels_kept_as_drawn'])}",
                 f"- Walls run up to the level above, to meet the wall there: {rules['walls_raised_to_level_above']}",

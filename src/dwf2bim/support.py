@@ -176,7 +176,7 @@ def quality(building, checks=None) -> dict:
     elif metrics["area_plan_levels_not_placed_surely"]:
         reasons["review"].append("the area plan is not placed surely on: " + ", ".join(metrics["area_plan_levels_not_placed_surely"]))
     verdict = "failed" if reasons["failed"] else "review" if reasons["review"] else "ready"
-    out = {"verdict": verdict, "reasons": reasons["failed"] + reasons["review"], "metrics": metrics,
+    out = {"verdict": verdict, "kind": building.get("kind", "full"), "reasons": reasons["failed"] + reasons["review"], "metrics": metrics,
            "unresolved_by_class": dict(sorted(unresolved.items())), "unsupported_by_class": support["counts"]}
     building["quality"] = out
     return out

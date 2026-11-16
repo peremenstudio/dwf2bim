@@ -70,6 +70,20 @@ def _is_header(t, texts):
     return any(abs(o.x - t.x + 18) < 1 for o in row) and any(abs(o.x - t.x - 50) < 2 for o in row)
 
 
+def same_colour(a, b, tolerance=None) -> bool:
+    """Two stroke colours as one: offices draw the same line in #0000FF or #0101FF."""
+    if a is None or b is None:
+        return False
+    if a == b:
+        return True
+    try:
+        x, y = int(a.lstrip("#")[-6:], 16), int(b.lstrip("#")[-6:], 16)
+    except ValueError:
+        return False
+    limit = _CFG.get("survey_colour_tolerance", 0) if tolerance is None else tolerance
+    return all(abs(((x >> k) & 255) - ((y >> k) & 255)) <= limit for k in (0, 8, 16))
+
+
 def _survey_segments(sheet, stroke):
     """Stroked segments of one colour, in ITM."""
     if sheet.drawing_transform is None or sheet.clip is None or sheet.content_matrix is None:
@@ -84,7 +98,7 @@ def _survey_segments(sheet, stroke):
 
     out = []
     for path in sheet.paths:
-        if path.stroke != stroke:
+        if not same_colour(path.stroke, stroke):
             continue
         for ring, closed in path.rings:
             pts = [to_itm(q) for q in ring] + ([to_itm(ring[0])] if closed else [])

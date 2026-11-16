@@ -23,8 +23,8 @@ If the download does not work, put the files in the `<block>_<parcel>` folder yo
 
 | Document | Format | Needed |
 |---|---|---|
-| Corrected architectural plan | DWF or DWFX, exported from Revit | Yes |
-| Area calculation | DWFX | No, there are no areas without it |
+| Corrected architectural plan | DWF or DWFX | Exported from Revit: a full model. Drawn in AutoCAD, or missing: the model is built from the area calculation alone, with storeys, floors and exterior walls |
+| Area calculation | DWFX | No, there are no areas without it. Needed when the plan is not from Revit |
 | Survey map for the permit | DWFX or DWF | No, there is no site or true position without it |
 
 It takes the newest of each type in a format it can read, and warns when they come from different requests. The choices are recorded in the project folder's `fetch_manifest.json`. Files replaced by a newer download move to its `_previous/` folder. The archive's names for these types are in `config/archive.json`, where they can be changed.
@@ -41,6 +41,8 @@ python -m dwf2bim run 6625 538 --folder D:\Projects           # download and bui
 python -m dwf2bim run 6625 538 --folder D:\Projects --local   # build from the files already in D:\Projects\6625_538
 python -m dwf2bim fetch 6625 538 --folder D:\Projects         # download only
 python -m dwf2bim compare-areas D:\Projects\6625_538\model    # compare Revit's area plans with the DWF
+python -m dwf2bim batch parcels.txt --folder D:\Projects     # many parcels, one per line, with a report of verdicts
+python -m dwf2bim regress D:\Projects                        # rebuild every project there and compare with the accepted results
 ```
 
 ## The project folder

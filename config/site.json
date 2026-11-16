@@ -2,6 +2,7 @@
   "_comment": "Site and area plan rules. Area code names come from the tables of the area plan; a code not listed here shows its number.",
   "building_line_names": ["קו בניין", "קו בנין"],
   "survey_plot_stroke": "#0101FF",
+  "survey_colour_tolerance": 12,
   "survey_building_line": {"stroke": "#FF0000", "dash_min_m": 0.6, "dash_max_m": 1.6, "edge_min_m": 3.0},
   "balcony_codes": ["2001", "2002", "2004"],
   "apartment_codes": ["1"],
@@ -72,6 +73,19 @@
     "beyond_plot_m": 1.5,
     "dxf_layers": {"main": "DWF2BIM_MAIN_FLOOR", "balcony": "DWF2BIM_BALCONY_FLOOR", "shaft": "DWF2BIM_SHAFT"},
     "dxf_color": 1
+  },
+  "massing": {
+    "_comment": "A model built from the area plan alone, when the architecture file holds no Revit object data. See src/dwf2bim/massing.py.",
+    "outside_codes_from": 2000,
+    "slab_m": 0.3,
+    "exterior_wall_m": 0.25,
+    "default_storey_m": 3.0,
+    "close_m": 0.05,
+    "min_wall_m": 0.2,
+    "min_shared_corners": 4,
+    "min_share_inside_plot": 0.95,
+    "sheet_units_m": [0.01, 0.001, 1.0, 0.1, 0.25, 0.5, 0.2, 0.05],
+    "_sheet_units_m": "Metres per unit of a drawing sheet, tried in turn: a model-space plot in cm, mm or m, then a paper sheet in mm at 1:100, 1:250, 1:500, 1:200, 1:50."
   },
   "support": {
     "_comment": "What an element must stand on, or it is listed as standing on nothing. See src/dwf2bim/support.py.",

@@ -97,6 +97,11 @@ def _named(dest: Path, current: str, wanted: str, role, log) -> str:
     return wanted
 
 
+def can_build_without(required_missing, chosen) -> bool:
+    """With no architecture plan, the area plan still gives a building: its storeys, floors and outer walls."""
+    return set(required_missing) <= {"architecture"} and "area" in chosen
+
+
 def request_warnings(chosen) -> list:
     """Documents of different requests may describe different designs."""
     main = chosen.get("architecture")
@@ -316,11 +321,14 @@ def fetch(block, parcel, dest: Path, log=print) -> dict:
         "missing": missing, "skipped": skipped, "warnings": request_warnings(chosen),
     }
     (dest / MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf8")
-    if required:
+    if required and not can_build_without(required, chosen):
         raise FetchError(f"No usable document in the archive for: {', '.join(required)}. See {dest / MANIFEST}")
     retire_old_files(dest, {d["file"] for d in chosen.values()}, log)
     for role in missing:
-        log(f"Not found in a usable format: {role}. The model is built without it.")
+        if role in required:
+            log(f"Not found in a usable format: {role}. The model is built from the area plan alone.")
+        else:
+            log(f"Not found in a usable format: {role}. The model is built without it.")
     for warning in manifest["warnings"]:
         log(f"Check: {warning}")
     return manifest

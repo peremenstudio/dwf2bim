@@ -16,12 +16,21 @@ A Revit-exported DWF is not just a drawing. It holds three layers, and the proto
 
 **Source priority:** a Revit property beats a measurement, and a measurement beats an inference. Each element records its source.
 
+## Two routes
+
+| The architecture file | Route | What the model holds |
+|---|---|---|
+| Exported from Revit, with object data | Full, stages 1 to 7 below | Walls, floors, openings, stairs, railings, columns |
+| Drawn in AutoCAD, or missing | From the area plan alone, stage 1b | Storeys with their heights, one main floor and its balconies per storey, openings at the plan's voids, exterior walls |
+
+The second route exists because many permit sets are drawn in AutoCAD and hold lines with no elements behind them. Their area plan still states what a planning check reads. Such a model says what it is: `kind: massing` in `building.json` and `quality.json`, and a line at the top of the report.
+
 ## Stages
 
 ### 0. Get the documents
 The person says where to save, and the project folder `<block>_<parcel>` is created there. The documents, the model (in `model/`) and the Dynamo graph all go in it. From a block and parcel, `fetch` opens the archive in a visible browser, because the person using the tool must approve its terms there. It reads nothing until the terms' cookie exists. It lists every page of results, and for each document in `config/archive.json` takes the newest in a format the build can read, trying older ones when the newest is another format. The format is read from the file's content. Each file is saved as `<block>_<parcel>_<kind>_<date filed>`, such as `6625_538_architecture_2024-02-25.dwf`, and a file already in the folder under the archive's own name is renamed to it.
 
-**Gate:** the architecture document exists, or the run stops. A missing area plan or survey is reported, and the model is built without it. Documents from different online requests are reported, since they may describe different designs. The choices go to `fetch_manifest.json` in the project folder.
+**Gate:** the architecture document or the area plan exists, or the run stops. With no architecture document the model is built from the area plan alone. A missing area plan or survey is reported, and the model is built without it. Documents from different online requests are reported, since they may describe different designs. The choices go to `fetch_manifest.json` in the project folder.
 
 ### 1. Read the package
 Unzip the DWF and decode the W2D stream and the object XML.
@@ -31,6 +40,20 @@ A DWFX holds the same three layers in another form: XPS paths in W2D logical uni
 In a project folder, the download's manifest says which file is which. Without one, a DWF is the building, and a DWFX is the area plan if it holds an area table, the survey if it holds a plot boundary, and the building if it describes thousands of Revit objects.
 
 **Gate:** the stream decodes to `(EndOfDWF)` with no unknown opcode, or the W2X has no unknown record, and object data exists. Otherwise stop with a clear message.
+
+### 1b. From the area plan alone
+Used when stage 1 finds no Revit object data, or the folder holds no architecture file, and an area plan is there. See `src/dwf2bim/massing.py`; its sizes are under `massing` in `config/site.json`.
+
+1. **Storeys over each other.** The panels are drawn side by side on the sheet. Starting from the ground storey, each takes the shift that lays most of its cell corners on the storey beside it, since the stair, the lift and the outer walls repeat. A storey sharing fewer than 4 corners is noted in the report.
+2. **Levels.** The ground storey is at zero, and each level rises by the height its panel states.
+3. **Floors.** The cells coded below 2000, without the voids, are the main floor. Each cell coded 2000 or more, a balcony, a roof terrace or a technical roof, is a floor of its own. A void inside the main floor is an opening in it; a void on its edge is a recess, cut out of the outline.
+4. **Walls.** Exterior walls run round each main floor, their outer face on its outline, from the storey's level to the next. The top storey gets a roof slab.
+5. **Areas and apartments** are the plan's own cells, as in the full route.
+6. Two tables for one storey number mean a second building on the plot. The larger one is built and the other is listed.
+
+7. **Placement, through the site plan.** An area plan does not draw the plot, but the drawing sheet does, in its site plan, with the building inside it. The survey's plot is taken by its boundary colour, or else from the closed rings of a plot's size that each colour of the map draws, the ring that fills most of its colour first. Each candidate is looked for on the drawing sheet by its shape, at each unit a sheet may be drawn in (`sheet_units_m`: a model-space plot in cm, mm or m, then paper scales). Where it is found, the largest part of the ground storey's outline is looked for inside it. The two together give the model's place on the map. An outline that fits as well when turned half round is settled by the storey's other corners, and noted when they do not settle it. A place that puts over 5% of the ground storey outside the plot is a false match, and the model is left unplaced.
+
+**Limit:** with no drawing sheet, or with a survey whose plot no colour closes, this model is not placed, and its verdict is `review` for that reason.
 
 ### 2. Split into views
 Each `(Viewport)` block starts a view. `X_Annotation` is merged into view `X`, as its annotation layer.
@@ -180,7 +203,7 @@ The IFC remains useful as a quick geometry check.
 | Limit | Effect | Planned fix |
 |---|---|---|
 | Beams | Read as `structure` and left out | Native framing, after columns are proven in Revit |
-| Needs Revit object data | A DWF from AutoCAD, or exported without object data, is refused | Geometry-only route |
+| No Revit object data | A set drawn in AutoCAD gives a model from the area plan alone: no interior walls, doors or windows, and not placed | Read the AutoCAD sheet's site plan to place it; later, walls from the linework |
 | DWFX as a building sheet | Read only as a survey or area plan | Building DWFX needs a sample file |
 | Elements seen only in sections or elevations | Most mullions, some panels and generics are unresolved | Register sections to plans |
 | Levels with no plan of their own | Typical floors are copied from the shared plan, and differences between the two floors are not seen | Check copies with registered sections |

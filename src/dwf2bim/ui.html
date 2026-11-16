@@ -116,6 +116,7 @@ const ltr = text => `\u2066${text}\u2069`;  // a path or file name keeps its own
 const MESSAGES = [
   [/^Model verdict: review\. (\d+) points/, m => `המודל דורש בדיקה: ${m[1]} נקודות לבדיקה בדוח הבנייה.`],
   [/^Model verdict: failed\. (\d+) points/, m => `המודל לא עבר את בדיקת האיכות: ${m[1]} נקודות בדוח הבנייה.`],
+  [/^Building from the area plan alone/, () => 'המודל נבנה מתכנית השטחים בלבד: קומות, רצפות, מרפסות, חללים וקירות חוץ, בלי קירות פנים, דלתות וחלונות.'],
   [/^Block and parcel must be numbers/, () => 'גוש וחלקה חייבים להיות מספרים.'],
   [/^Choose where to save the project\.$/, () => 'יש לבחור תיקייה לשמירה, בנתיב מלא.'],
   [/^Choose a full folder path/, () => 'יש לבחור תיקייה בנתיב מלא, למשל D:\\Projects.'],
@@ -145,6 +146,8 @@ const MESSAGES = [
   [/^(\w+): saved (.+), filed on (.+) \(([\d.]+) MB\)$/, m => `${role(m[1])}: ירד ונשמר ${ltr(m[2])}, תאריך המסמך בארכיון ${ltr(m[3])} (${m[4]} MB)`],
   [/^(\w+): renamed (.+) to (.+)$/, m => `${role(m[1])}: שם הקובץ שונה מ-${ltr(m[2])} ל-${ltr(m[3])}`],
   [/^Moved aside: (.+)$/, m => `הועבר לתיקיית _previous: ${ltr(m[1])}`],
+  [/^Not found in a usable format: (\w+)\. The model is built from the area plan alone\.$/, m => `לא נמצא בפורמט שמיש: ${role(m[1])}. המודל נבנה מתכנית השטחים בלבד.`],
+  [/^No architecture file in the folder\.$/, () => 'אין בתיקייה קובץ אדריכלות. המודל נבנה מתכנית השטחים בלבד.'],
   [/^Not found in a usable format: (\w+)\./, m => `לא נמצא בפורמט שמיש: ${role(m[1])}. המודל נבנה בלעדיו.`],
   [/^Check: (\w+) is from online request (\S+), architecture from (\S+)$/, m => `לבדיקה: ${role(m[1])} שייך לבקשה מקוונת ${m[2]}, והאדריכלות לבקשה ${m[3]}.`],
   [/^(\w+) is from online request (\S+), architecture from (\S+)$/, m => `${role(m[1])} שייך לבקשה מקוונת ${m[2]}, והאדריכלות לבקשה ${m[3]}.`],
