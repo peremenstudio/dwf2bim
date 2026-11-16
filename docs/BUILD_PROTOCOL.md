@@ -2,6 +2,8 @@
 
 How a permit DWF becomes a 3D model. Every run follows these stages in this order, and each stage has a gate. A failed gate stops the run or is written to `BUILD_REPORT.md`; nothing is dropped silently.
 
+What the product is for, what a finished model must be and what is built next are in [PRODUCT_SPEC.md](PRODUCT_SPEC.md).
+
 ## Principle
 
 A Revit-exported DWF is not just a drawing. It holds three layers, and the protocol uses all of them:
@@ -17,7 +19,7 @@ A Revit-exported DWF is not just a drawing. It holds three layers, and the proto
 ## Stages
 
 ### 0. Get the documents
-The person says where to save, and the project folder `<block>_<parcel>` is created there. The documents, the model (in `model/`) and the Dynamo graph all go in it. From a block and parcel, `fetch` opens the archive in a visible browser, because the person using the tool must approve its terms there. It reads nothing until the terms' cookie exists. It lists every page of results, and for each document in `config/archive.json` takes the newest in a format the build can read, trying older ones when the newest is another format. The format is read from the file's content.
+The person says where to save, and the project folder `<block>_<parcel>` is created there. The documents, the model (in `model/`) and the Dynamo graph all go in it. From a block and parcel, `fetch` opens the archive in a visible browser, because the person using the tool must approve its terms there. It reads nothing until the terms' cookie exists. It lists every page of results, and for each document in `config/archive.json` takes the newest in a format the build can read, trying older ones when the newest is another format. The format is read from the file's content. Each file is saved as `<block>_<parcel>_<kind>_<date filed>`, such as `6625_538_architecture_2024-02-25.dwf`, and a file already in the folder under the archive's own name is renamed to it.
 
 **Gate:** the architecture document exists, or the run stops. A missing area plan or survey is reported, and the model is built without it. Documents from different online requests are reported, since they may describe different designs. The choices go to `fetch_manifest.json` in the project folder.
 
@@ -41,6 +43,8 @@ Each `(Viewport)` block starts a view. `X_Annotation` is merged into view `X`, a
 | Area Plan, Drafting, Detail, Legend, Sheet | `AREA_`, `DRAFT_`, `DET_`, `LEG_`, `SHEET_` | Exported only, not used for geometry |
 
 Output: `views/<key>.png`, `views/<key>.dxf` (plans, sections and elevations), `views/views.json`.
+
+In a DXF each class of element is on its own layer, `DWF_<CLASS>`, with its cut outlines on `DWF_<CLASS>_CUT`, so a plan can be read with the furniture or the site switched off. Annotation is on `DWF_NOTES`, `DWF_TAGS`, `DWF_SPOT_HEIGHTS` and `DWF_SECTION_MARKS`. Dimensions are left out: the model uses none of them and they hide the outlines. The layers and what is left out are set under `plan_drawing` in `config/classification.json`.
 
 ### 3. Set up the frame
 1. **Display unit:** compare the wall `Length` property with measured length, and snap to mm, cm, m, inch or foot.
@@ -85,10 +89,10 @@ A project folder under `DWF/` holds the building DWF and two DWFX sheets, told a
 
 ### 4b2. Floor outlines
 Before any floor is built, each storey above the ground gets two kinds of outline, as closed polygons:
-- **Main floor:** what the storey's full-height walls close all round, to the outer face of their core, joined with the slabs the area plan fitted as main and with its room cells, so a wide glazing that leaves a wall line open does not cut a room out. Walls standing out of the building leave no tab. A hole stays only where no floor covers it, as at a shaft or a stair. A roof takes the walls of the storey below.
+- **Main floor:** what the storey's full-height walls close all round, to the outer face of their core, joined with the slabs the area plan fitted as main and with its room cells, so a wide glazing that leaves a wall line open does not cut a room out. Walls standing out of the building leave no tab. A hole stays only where no floor covers it and something needs it: a stair arriving at the storey, a lift or a shaft drawn there (`shaft_families` in `config/classification.json`), an area plan cell coded as a void or a lift, or a small space the walls close all round. The hole is split by the walls that cross it, and each part is judged alone, so a lobby beside a lift is floored and the lift stays open. A hole, or a part of one, with no such reason is floored and listed in the report as inferred. The other way round, a void or lift cell of a trusted area plan opens the floor also where a slab is drawn across it, and a lift cell counts on every storey between the lowest and the highest that show it. A roof takes the walls of the storey below.
 - **Balconies:** what the drawn floors cover outside the main floor, within 1.5 m of the plot. The area plan's balcony cells only mark a balcony inside the walls, such as a recessed one, and only where they cover more than a strip, since the cells sit a little off the walls. The drawn slabs and room cells likewise only add to the main floor a room the walls leave open, never a strip along a facade.
 
-Area plan cells count only on a storey where the area plan holds at least 80% of the walls. The outlines are written in red to the plan DXFs and to `views/CONTOUR_<level>.dxf`, on the layers `DWF2BIM_MAIN_FLOOR` and `DWF2BIM_BALCONY_FLOOR`, and drawn on the plan in `qa/contour_<level>.png`. The storey then gets one main floor from its outline, of the type that covers most of it, and one floor per balcony, of the balcony slab it covers most. A drawn floor at another height inside the main floor, such as a lowered bathroom, stays and is cut out of it.
+Area plan cells count only on a storey where the area plan holds at least 80% of the walls. The outlines are written in red to the plan DXFs and to `views/CONTOUR_<level>.dxf`, on the layers `DWF2BIM_MAIN_FLOOR`, `DWF2BIM_BALCONY_FLOOR` and `DWF2BIM_SHAFT`, and drawn on the plan in `qa/contour_<level>.png`. The storey then gets one main floor from its outline, of the type that covers most of it, and one floor per balcony, of the balcony slab it covers most. A drawn floor at another height inside the main floor, such as a lowered bathroom, stays and is cut out of it.
 
 ### 4c. Modelling rules
 These make the model clean to build in Revit, and are set under `modelling` in `config/site.json`. The report lists what each changed.
@@ -106,6 +110,18 @@ These make the model clean to build in Revit, and are set under `modelling` in `
 9. **The ground outside the building is one floor per height.** Ground floors whose tops are within 5 cm join, across garden walls and slivers, up to the plot edge, and take the type covering most of them. Raised planters and sunken pits keep their own floor. The building's outline is that of the first storey's main slabs; ground level exterior walls take it too, and get plaster.
 8. **The ground has floors everywhere in the plot.** Each gap between the ground level's floors continues the floor it shares the longest edge with, at its height and type, or else the nearest floor. Only stairs stay open. A gap closed by walls, or where an element was not built, such as a ramp, is floored too and listed for checking.
 
+### 4d. What stands on nothing
+After the modelling rules, each element is checked for what carries it. Nothing is changed; what fails is listed in `building.json` under `support`, in the report, and drawn red in the 3D previews.
+
+| Element | Stands when |
+|---|---|
+| Wall | A floor lies under at least half of it at its base, or a wall below reaches its base. A wall up to 1.2 m high under a slab hangs from it, as a beam does. A wall starting within 0.5 m of project zero or below stands in the ground |
+| Floor | A wall reaches it from below, or a floor lies beside it at its height |
+| Railing, stair, mass | A floor or a wall is at its base |
+| Door, window | It has a host wall and lies inside that wall's height |
+
+The limits are under `support` in `config/site.json`.
+
 ### 5. Write IFC
 IFC4, metres, one storey per level. Revit's `IfcGUID` is reused where valid, so a rebuild keeps identity. Straight walls carry an axis and a rectangular profile. Openings are real voids in the host wall. Pset `Dwf2Bim` records `RevitElementId`, `GeometrySource`, `HeightSource` and `ClonedFrom`.
 
@@ -120,9 +136,10 @@ IFC4, metres, one storey per level. Revit's `IfcGUID` is reused where valid, so 
 | Wall drawn outside modelled height | Heights against independent section views |
 | Levels, heights and slab areas | Per level: elevation, storey height, slab area in the model against Revit `Area`. Slab area is not a regulatory floor area |
 | `qa/overlay_<level>.png` | Model drawn on the source plan: green walls, blue floors, orange copied, magenta openings, red openings with no host |
-| `qa/preview_3d*.png` | Overall look |
+| `qa/preview_3d*.png` | Overall look. Red elements stand on nothing |
+| Verdict | `ready`, `review` or `failed`, from the shares of unresolved elements, elements standing on nothing, openings outside a wall and floors off their Revit area, and from weak plan links, unclassified families, the survey placement and the area plan's fit. Limits are under `quality` in `config/site.json` |
 
-Output: `BUILD_REPORT.md`. Start every review from its "Inferred geometry" section.
+Output: `BUILD_REPORT.md` and `quality.json`. Start every review from the report's "Verdict" and "Standing on nothing" sections, then "Inferred geometry".
 
 ### 7. Build in Revit
 IFC import gives fixed geometry whose type cannot be swapped, so editable models are built by script instead. See [revit/README.md](../revit/README.md).

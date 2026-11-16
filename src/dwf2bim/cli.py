@@ -10,7 +10,7 @@ from pathlib import Path
 import ifcopenshell
 import ifcopenshell.validate
 
-from . import conventions, dwfx, dynamo, fetch, ifc_export, package, qa, site, views as views_mod, xps
+from . import conventions, dwfx, dynamo, fetch, ifc_export, package, qa, site, support, views as views_mod, xps
 from .extract import Extractor
 from .names import level_id
 
@@ -86,6 +86,7 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     ex = Extractor(sheets, views)
     building = ex.run()
     building["sections"] = ex.section_marks(building)
+    building["shaft_hints"] = ex.shaft_hints()
     ex.unresolved_outlines(building["unresolved"])
     _log(f"  elements={len(building['elements'])} openings={len(building['openings'])} unresolved={len(building['unresolved'])}")
 
@@ -99,19 +100,25 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     site.merge_storey_slabs(building)
     site.keep_plate_masses(building)
     _log(f"  modelling rules: { {k: (len(v) if isinstance(v, list) else v) for k, v in conventions.apply(building).items()} }")
+    standing = support.check(building)
+    _log(f"  standing on nothing: {standing['counts'] or 'none'}")
     placement = building["site"].get("placement")
     _log(f"  placement={placement} slab_clip={building['site'].get('slab_clip')}")
     if not skip_dxf:
         building["plan_drawings"] = views_mod.plan_drawings(views, building["levels"], building.get("typical_floors") or {})
+    verdict = support.quality(building)
     (out / "building.json").write_text(json.dumps(building, ensure_ascii=False, indent=1), encoding="utf8")
+    (out / "quality.json").write_text(json.dumps(verdict, ensure_ascii=False, indent=1), encoding="utf8")
 
     manifest = views_mod.views_manifest(views)
     (out / "views" / "views.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf8")
+    layers = {i: qa.drawing_layers(sheet, ex.rules) for i, sheet in enumerate(sheets)}
     for v in views.values():
         if v.prims:
             qa.render_view(v, out / "views" / f"{v.key}.png")
             if not skip_dxf and v.kind in ("plan", "section", "elevation"):
-                qa.export_dxf(v, out / "views" / f"{v.key}.dxf", building.get("contours", {}).get(level_id(v.level)) if v.level else None)
+                qa.export_dxf(v, out / "views" / f"{v.key}.dxf", building.get("contours", {}).get(level_id(v.level)) if v.level else None,
+                              layers[v.sheet])
     if not skip_dxf:
         for lid, outline in building.get("contours", {}).items():
             qa.export_contours_dxf(outline, out / "views" / f"CONTOUR_{lid}.dxf")
@@ -150,6 +157,9 @@ def build(source: Path, out_root: Path, skip_dxf: bool = False, survey=None, are
     qa.write_report(out / "BUILD_REPORT.md", source.name, building, checks, counts, manifest, validation, qa.level_summary(building, ex))
     project = graph_folder.name if graph_folder else out.name
     _log(f"Dynamo graph: {dynamo.write_graph(ROOT, project, out, graph_folder or out)}")
+    _log(f"Verdict: {verdict['verdict']}")
+    for reason in verdict["reasons"]:
+        _log(f"  - {reason}")
     _log(f"Done: {out}")
     return out
 
@@ -212,12 +222,16 @@ def run_project(block, parcel, save_folder, use_local: bool = False, log=print) 
     counts["areas"] = sum(len(f["cells"]) * len(f["levels"]) for f in building.get("areas", []))
     counts["apartments"] = len(building.get("apartments", {}).get("units", []))
     counts["unresolved"] = len(building.get("unresolved", []))
+    counts["standing_on_nothing"] = len((building.get("support") or {}).get("unsupported", []))
     warnings = list(manifest.get("warnings", []))
+    verdict = building.get("quality") or {}
+    if verdict.get("verdict") in ("review", "failed"):
+        warnings.append(f"Model verdict: {verdict['verdict']}. {len(verdict['reasons'])} points to check in BUILD_REPORT.md.")
     if building.get("apartments", {}).get("source") == "inferred":
         warnings.append("Apartment numbers are inferred, as the area plan does not list them. Check BUILD_REPORT.md.")
     return {
         "project": name, "documents": manifest.get("documents", {}), "missing": manifest.get("missing", []), "warnings": warnings,
-        "counts": counts, "folder": str(folder), "model": str(out), "graph": str(folder / f"Build_{name}.dyn"), "report": str(out / "BUILD_REPORT.md"),
+        "counts": counts, "verdict": verdict.get("verdict"), "folder": str(folder), "model": str(out), "graph": str(folder / f"Build_{name}.dyn"), "report": str(out / "BUILD_REPORT.md"),
     }
 
 
@@ -275,8 +289,8 @@ def main(argv=None):
     else:
         loose = sorted(p for p in source.iterdir() if p.suffix.lower() == ".dwf")
         folders = sorted(p for p in source.iterdir() if p.is_dir())
-        has_own = any(p.suffix.lower() == ".dwf" for p in source.iterdir())
-        projects = [source] if has_own and any(p.suffix.lower() == ".dwfx" for p in source.iterdir()) else loose + folders
+        # a folder holding a DWFX is one project: its sheets are told apart by their content
+        projects = [source] if any(p.suffix.lower() == ".dwfx" for p in source.iterdir()) else loose + folders
     if not projects:
         print(f"No DWF files or project folders in {source}", file=sys.stderr)
         return 2

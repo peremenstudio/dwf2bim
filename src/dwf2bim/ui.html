@@ -108,12 +108,14 @@ let since = 0, timer = null;
 
 const ROLES = {architecture: 'תכנית אדריכלות', area: 'חישוב שטחים', survey: 'מפת מדידה'};
 const COUNTS = {wall: 'קירות', floor: 'רצפות', stair: 'מדרגות', railing: 'מעקים', generic: 'פלטות', door: 'דלתות', window: 'חלונות',
-  areas: 'שטחים', apartments: 'דירות (מוסק)', unresolved: 'לא נפתרו'};
+  areas: 'שטחים', apartments: 'דירות (מוסק)', unresolved: 'לא נפתרו', standing_on_nothing: 'עומדים על כלום'};
 const role = text => text.split(/,\s*/).map(r => ROLES[r] || r).join(', ');
 const ltr = text => `\u2066${text}\u2069`;  // a path or file name keeps its own direction inside a Hebrew line
 
 // What the server says, in Hebrew. Anything not listed here is technical and shows as it is.
 const MESSAGES = [
+  [/^Model verdict: review\. (\d+) points/, m => `המודל דורש בדיקה: ${m[1]} נקודות לבדיקה בדוח הבנייה.`],
+  [/^Model verdict: failed\. (\d+) points/, m => `המודל לא עבר את בדיקת האיכות: ${m[1]} נקודות בדוח הבנייה.`],
   [/^Block and parcel must be numbers/, () => 'גוש וחלקה חייבים להיות מספרים.'],
   [/^Choose where to save the project\.$/, () => 'יש לבחור תיקייה לשמירה, בנתיב מלא.'],
   [/^Choose a full folder path/, () => 'יש לבחור תיקייה בנתיב מלא, למשל D:\\Projects.'],
@@ -140,7 +142,8 @@ const MESSAGES = [
   [/^(\w+): the archive answered (\d+)$/, m => `${role(m[1])}: הארכיון ענה ${m[2]}`],
   [/^(\w+): (.+) is (\S+), trying an older one\. It is kept in (\S+)\.$/, m => `${role(m[1])}: ${ltr(m[2])} בפורמט ${ltr(m[3])}, שהמערכת עוד לא קוראת. הקובץ נשמר בתיקייה ${ltr(m[4])}, ומנסים מסמך ישן יותר.`],
   [/^(\w+): same content as (.+), already here$/, m => `${role(m[1])}: הקובץ כבר קיים בשם ${ltr(m[2])}`],
-  [/^(\w+): saved (.+) \(([\d.]+) MB\)$/, m => `${role(m[1])}: נשמר ${ltr(m[2])} (${m[3]} MB)`],
+  [/^(\w+): saved (.+), filed on (.+) \(([\d.]+) MB\)$/, m => `${role(m[1])}: ירד ונשמר ${ltr(m[2])}, תאריך המסמך בארכיון ${ltr(m[3])} (${m[4]} MB)`],
+  [/^(\w+): renamed (.+) to (.+)$/, m => `${role(m[1])}: שם הקובץ שונה מ-${ltr(m[2])} ל-${ltr(m[3])}`],
   [/^Moved aside: (.+)$/, m => `הועבר לתיקיית _previous: ${ltr(m[1])}`],
   [/^Not found in a usable format: (\w+)\./, m => `לא נמצא בפורמט שמיש: ${role(m[1])}. המודל נבנה בלעדיו.`],
   [/^Check: (\w+) is from online request (\S+), architecture from (\S+)$/, m => `לבדיקה: ${role(m[1])} שייך לבקשה מקוונת ${m[2]}, והאדריכלות לבקשה ${m[3]}.`],

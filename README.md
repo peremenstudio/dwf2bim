@@ -49,14 +49,15 @@ python -m dwf2bim compare-areas D:\Projects\6625_538\model    # compare Revit's 
 
 | Path | Content |
 |---|---|
-| The DWF and DWFX files | The downloaded documents |
+| `<block>_<parcel>_<kind>_<date>.dwf` or `.dwfx` | The downloaded documents: `architecture`, `area`, `survey`, each with the date it was filed in the archive |
 | `Build_<block>_<parcel>.dyn` | The Dynamo graph to run in Revit |
 | `fetch_manifest.json` | Which documents were chosen, and why others were not |
+| `model/quality.json` | The verdict, `ready`, `review` or `failed`, with its reasons |
 | `model/BUILD_REPORT.md` | What was built, what was inferred, what is missing. Read this first |
 | `model/building.json` | Neutral model, in metres, which Revit builds from |
 | `model/<file name>.ifc` | The same model as IFC, to check it without Revit |
-| `model/views/` | Each view of the sheet as PNG and DXF |
-| `model/qa/` | Plan overlays and 3D previews |
+| `model/views/` | Each view of the sheet as PNG and DXF, a layer per class, without the dimensions |
+| `model/qa/` | Floor outlines per storey, plan overlays and 3D previews. Red elements stand on nothing |
 
 The graph holds the full paths to this folder and to this repository, so it runs only on the machine that built it. Keep both where they are, or build again.
 

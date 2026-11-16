@@ -107,6 +107,21 @@ class KeepingFiles(unittest.TestCase):
             self.assertEqual(sorted(f.name for f in dest.iterdir() if f.is_file()), ["fetch_manifest.json", "new.dwf"])
             self.assertEqual(sorted(f.name for f in dest.glob("_previous/*/*")), ["old.dwf", "old.dwfx"])
 
+    def test_a_file_is_named_by_project_kind_and_filing_date(self):
+        self.assertEqual(fetch.clear_name("1_2", "architecture", "25/2/2024", ".dwf"), "1_2_architecture_2024-02-25.dwf")
+        self.assertEqual(fetch.clear_name("1_2", "survey", "", ".dwfx"), "1_2_survey_undated.dwfx")
+
+    def test_a_file_already_here_takes_its_clear_name_unless_taken(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp)
+            (dest / "RBM_1.dwf").write_bytes(b"a")
+            said = []
+            self.assertEqual(fetch._named(dest, "RBM_1.dwf", "1_2_area_2024-01-01.dwf", "area", said.append), "1_2_area_2024-01-01.dwf")
+            self.assertTrue((dest / "1_2_area_2024-01-01.dwf").exists() and not (dest / "RBM_1.dwf").exists())
+            self.assertEqual(len(said), 1)
+            (dest / "RBM_2.dwf").write_bytes(b"b")
+            self.assertEqual(fetch._named(dest, "RBM_2.dwf", "1_2_area_2024-01-01.dwf", "area", said.append), "RBM_2.dwf")
+
     def test_same_content_is_not_saved_twice(self):
         with tempfile.TemporaryDirectory() as folder:
             dest = Path(folder)

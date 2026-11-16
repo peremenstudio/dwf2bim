@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import collections
 import math
+import re
 
 import ezdxf
 import ifcopenshell.geom
@@ -23,6 +24,9 @@ _SHADE = {
     "door": (160, 100, 60),
     "window": (90, 160, 220),
 }
+
+
+_UNSUPPORTED = (225, 45, 45)  # what stands on nothing, in the previews
 
 
 # ---- views -------------------------------------------------------------------
@@ -50,7 +54,7 @@ def _contour_layers(doc, msp, contours):
     from .site import _CFG
 
     spec = _CFG["contours"]
-    for key in ("main", "balcony"):
+    for key in ("main", "balcony", "shaft"):
         name = spec["dxf_layers"][key]
         if name not in doc.layers:
             doc.layers.add(name, color=spec["dxf_color"])
@@ -58,8 +62,9 @@ def _contour_layers(doc, msp, contours):
     for key, polys in groups:
         for poly_set in polys:
             for poly in poly_set:
-                for ring in [poly["outer"]] + list(poly.get("holes") or []):
-                    msp.add_lwpolyline([tuple(q) for q in ring], close=True, dxfattribs={"layer": spec["dxf_layers"][key], "color": spec["dxf_color"]})
+                msp.add_lwpolyline([tuple(q) for q in poly["outer"]], close=True, dxfattribs={"layer": spec["dxf_layers"][key], "color": spec["dxf_color"]})
+                for ring in poly.get("holes") or []:
+                    msp.add_lwpolyline([tuple(q) for q in ring], close=True, dxfattribs={"layer": spec["dxf_layers"]["shaft"], "color": spec["dxf_color"]})
 
 
 def export_contours_dxf(contours, path):
@@ -70,11 +75,38 @@ def export_contours_dxf(contours, path):
     doc.saveas(path)
 
 
-def export_dxf(view, path, contours=None):
-    """One DXF per view, in metres at model scale, with its annotation and text.
+def drawing_layers(sheet, rules):
+    """Which DXF layer a graphic goes on, from its element's class: (primitive, in the annotation stream) -> name or None.
+
+    One layer per class, so a plan can be read with the furniture or the site off. What
+    `plan_drawing.left_out` in config/classification.json names, as the dimensions, is not drawn.
+    """
+    spec = rules.plan_drawing
+    left_out = re.compile(spec["left_out"]) if spec.get("left_out") else None
+    named = [(re.compile(r["match"]), r["layer"]) for r in spec.get("annotation_layers", [])]
+    prefix = spec.get("layer_prefix", "DWF_")
+
+    def layer_of(prim, annotation):
+        el = sheet.elements.get(sheet.node_to_element.get(prim.node))
+        family = getattr(el, "family", None) or ""
+        if left_out and left_out.search(family):
+            return None
+        if annotation:
+            return prefix + next((layer for rx, layer in named if rx.search(family)), "ANNOTATION")
+        if el is None:
+            return prefix + "OTHER"
+        cls = rules.classify(family, el.props.get("Type Name"))
+        return prefix + {"annotation": "DETAIL", "unclassified": "OTHER"}.get(cls, cls.upper())
+
+    return layer_of
+
+
+def export_dxf(view, path, contours=None, layer_of=None):
+    """One DXF per view, in metres at model scale, each class of element on its own layer.
 
     A plan aligned to the others is in the model's coordinates, so Revit can place it origin to
-    origin under the model. Any other view is local to itself.
+    origin under the model. Any other view is local to itself. Without `layer_of`, everything
+    goes on MODEL and ANNOTATION.
     """
     from .views import in_model_frame
 
@@ -88,8 +120,11 @@ def export_dxf(view, path, contours=None):
         def place(q):
             return (q[0] * k, q[1] * k)
     text_height = 0.0025 * (view.scale or 100)
-    for layer, prims in (("MODEL", view.prims), ("ANNOTATION", view.annotation)):
+    for annotation, prims in ((False, view.prims), (True, view.annotation)):
         for p in prims:
+            layer = layer_of(p, annotation) if layer_of else ("ANNOTATION" if annotation else "MODEL")
+            if layer is None:
+                continue
             pts = [place(q) for q in p.points]
             if not pts:
                 continue
@@ -97,7 +132,7 @@ def export_dxf(view, path, contours=None):
                 if p.text and p.text.strip():
                     msp.add_text(p.text.strip(), height=text_height, dxfattribs={"layer": layer + "_TEXT", "insert": pts[0]})
             elif p.kind in ("contour", "polygon") and len(pts) > 2:
-                msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": layer + "_CUT" if layer == "MODEL" else layer})
+                msp.add_lwpolyline(pts, close=True, dxfattribs={"layer": layer if annotation else layer + "_CUT"})
             elif p.kind in ("line", "polyline") and len(pts) > 1:
                 msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
             elif p.kind == "circle" and p.radius:
@@ -442,8 +477,9 @@ def render_3d(building, path, azimuth=-55.0, elevation=32.0, size=(2000, 1500), 
             faces.append(([(a[0], a[1], z0), (b[0], b[1], z0), (b[0], b[1], z1), (a[0], a[1], z1)], normal, color))
         faces.append(([(p[0], p[1], z1) for p in pts], (0.0, 0.0, 1.0), color))
 
+    hanging = {r["id"] for r in (building.get("support") or {}).get("unsupported", [])}
     for rec in building["elements"]:
-        color = _SHADE.get(rec["class"], (180, 180, 180))
+        color = _UNSUPPORTED if rec["id"] in hanging else _SHADE.get(rec["class"], (180, 180, 180))
         g = rec["geometry"]
         if g["kind"] == "treads":
             for t in g["treads"]:
@@ -462,7 +498,7 @@ def render_3d(building, path, azimuth=-55.0, elevation=32.0, size=(2000, 1500), 
             (cx + ux * w - nx * d, cy + uy * w - ny * d),
             (cx - ux * w - nx * d, cy - uy * w - ny * d),
         ]
-        add_prism(ring, rec["z0"], rec["z0"] + rec["height"], _SHADE.get(rec["class"]))
+        add_prism(ring, rec["z0"], rec["z0"] + rec["height"], _UNSUPPORTED if rec["id"] in hanging else _SHADE.get(rec["class"]))
 
     projected = []
     view_dir = (sa * ce, ca * ce, -se)  # direction from model towards the viewer's opposite
@@ -491,6 +527,11 @@ def render_3d(building, path, azimuth=-55.0, elevation=32.0, size=(2000, 1500), 
 def write_report(path, source_name, building, checks, ifc_counts, manifest, validation, levels_table):
     b = building
     out = [f"# Build report - {source_name}", ""]
+    verdict = b.get("quality")
+    if verdict:
+        out += [f"## Verdict: {verdict['verdict']}", ""]
+        out += [f"- {r}" for r in verdict["reasons"]] or ["- Nothing passes its limit."]
+        out += ["", "| Measure | Value |", "|---|---:|"] + [f"| {k} | {v} |" for k, v in verdict["metrics"].items()] + [""]
     out += ["## Result", "", "| Class | In DWF | Modelled |", "|---|---:|---:|"]
     by_class = b["stats"]["elements_by_class"]
     for cls in sorted(ifc_counts):
@@ -532,6 +573,12 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
     out += [f"- Openings without a host wall (not cut): {sum(1 for o in b['openings'] if not o.get('host'))}"]
     stairs = [e for e in b["elements"] if e["class"] == "stair"]
     out += [f"- Stairs: {len(stairs)}, way up read from the plans on {sum(1 for e in stairs if e['geometry'].get('direction_checked'))}. Each is rebuilt in Revit from flights; the IFC shows only the treads visible in plan"]
+    hanging = (b.get("support") or {}).get("unsupported", [])
+    out += ["", "## Standing on nothing", "",
+            f"Elements with nothing under them, and doors or windows not in a wall: **{len(hanging)}**. They are red in `qa/preview_3d*.png`."]
+    if hanging:
+        out += ["", "| Id | Class | Level | Type | From m | To m | Why |", "|---|---|---|---|---:|---:|---|"]
+        out += [f"| {r['id']} | {r['class']} | {r['level']} | {r['type']} | {r['z0']} | {r['z1']} | {r['why']} |" for r in hanging]
     out += ["", "## Checks against source", ""]
     for k, v in checks.items():
         out.append(f"- `{k}`: {v}")
@@ -600,6 +647,12 @@ def write_report(path, source_name, building, checks, ifc_counts, manifest, vali
         out += [f"| {x['level']} | {x['main_m2']} | {x['shafts']} | {x['balconies']} | {x['balconies_m2']} | {x['from']} | {x['floors_joined_into_it']} |"
                 for x in outlines["storeys"]]
         out += ["", f"Drawn floors replaced by the outlines: {len(outlines['floors_replaced'])}", ""]
+        closed = [(x["level"], h) for x in outlines["storeys"] for h in x.get("holes_closed", [])]
+        if closed:
+            out += ["Holes in a main floor with no stair, lift, shaft or void in them, floored (inferred). Check these:", "",
+                    "| Level | At | Hole m2 | Floored m2 |", "|---|---|---:|---:|"]
+            out += [f"| {lid} | {h['at']} | {h['area_m2']} | {h['floored_m2']} |" for lid, h in closed]
+            out.append("")
     if b.get("sections"):
         out += ["## Section lines", "", "| Section | Drawing | From | To | Looks | Side from |", "|---|---|---|---|---|---|"]
         out += [f"| {x['name']} | {x['view']} | {x['p0']} | {x['p1']} | {x['look']} | {x['look_source']} |" for x in b["sections"]]

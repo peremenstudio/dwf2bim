@@ -1,6 +1,19 @@
 {
   "_comment": "Maps Revit family names to model classes. First matching regex wins. Set a class in enabled_classes to include it in the model.",
   "section_mark_families": ["Section"],
+  "shaft_families": "Lift|Elevator|מעלית|Shaft",
+  "_shaft_families": "A family or type matching this marks a lift or a shaft where it is drawn, whatever its class. A floor stays open there.",
+  "plan_drawing": {
+    "_comment": "The DXF of each view. A family matching left_out is not drawn. Annotation goes on the layer of the first rule it matches, else on ANNOTATION. Model graphics go on a layer named after their class.",
+    "layer_prefix": "DWF_",
+    "left_out": "Dimension",
+    "annotation_layers": [
+      {"match": "Spot", "layer": "SPOT_HEIGHTS"},
+      {"match": "Tag|שם חדר", "layer": "TAGS"},
+      {"match": "^Section$|^Elevation$", "layer": "SECTION_MARKS"},
+      {"match": "^Text$", "layer": "NOTES"}
+    ]
+  },
   "enabled_classes": ["wall", "floor", "door", "window", "stair", "railing", "mullion", "curtain_panel", "generic"],
   "type_rules": [
     {"match": "^אדמה$|^אדמה בלבד", "class": "site"}

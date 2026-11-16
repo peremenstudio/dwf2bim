@@ -82,6 +82,21 @@ def safe_name(name) -> str:
     return cleaned or "document"
 
 
+def clear_name(project, role, date, kind) -> str:
+    """A file name that says what the document is and when it was filed: 6625_538_architecture_2024-02-25.dwf."""
+    day = parse_date(date)
+    return f"{project}_{role}_{day.isoformat() if day else 'undated'}{kind}"
+
+
+def _named(dest: Path, current: str, wanted: str, role, log) -> str:
+    """Give a file already in the folder its clear name, unless that name is taken."""
+    if current == wanted or (dest / wanted).exists():
+        return current
+    (dest / current).rename(dest / wanted)
+    log(f"{role}: renamed {current} to {wanted}")
+    return wanted
+
+
 def request_warnings(chosen) -> list:
     """Documents of different requests may describe different designs."""
     main = chosen.get("architecture")
@@ -232,6 +247,8 @@ def _download_role(context, role, rows, dest, known, log):
         doc_id = row["url"].split("id=")[-1]
         previous = known.get(doc_id)
         if previous and (dest / previous["file"]).exists():
+            wanted = clear_name(dest.name, role, row.get("date"), previous.get("format") or Path(previous["file"]).suffix.lower())
+            previous = {**previous, "file": _named(dest, previous["file"], wanted, role, log)}
             log(f"{role}: {row['type']} of {row['date']} is already here: {previous['file']}")
             return previous, skipped
         log(f"{role}: downloading {row['type']} of {row['date']}")
@@ -251,13 +268,15 @@ def _download_role(context, role, rows, dest, known, log):
             skipped.append({**row, "file": f"{OTHER_FORMATS}/{name}", "reason": f"format {kind}, need {' or '.join(spec['formats'])}"})
             log(f"{role}: {name} is {kind}, trying an older one. It is kept in {OTHER_FORMATS}.")
             continue
+        wanted = clear_name(dest.name, role, row.get("date"), kind)
         file_name = _existing_file(dest, data)
         if file_name:
+            file_name = _named(dest, file_name, wanted, role, log)
             log(f"{role}: same content as {file_name}, already here")
         else:
-            file_name = name
+            file_name = wanted
             (dest / file_name).write_bytes(data)
-            log(f"{role}: saved {file_name} ({len(data) / 1e6:.1f} MB)")
+            log(f"{role}: saved {file_name}, filed on {row.get('date') or 'an unknown date'} ({len(data) / 1e6:.1f} MB)")
         return {**row, "id": doc_id, "file": file_name, "sha256": hashlib.sha256(data).hexdigest(), "format": kind}, skipped
     return None, skipped
 

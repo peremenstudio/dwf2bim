@@ -4,11 +4,13 @@ Builds a native Revit model from a building's permit documents. Code, names, out
 
 ## When asked to build a model
 1. Ask where to save. From a block and parcel, with `PYTHONPATH=src`: `python -m dwf2bim run <block> <parcel> --folder <where>`. This creates `<where>/<block>_<parcel>`. The person using the tool approves the archive's terms in the browser window. Never click that approval for them. If the files are already in that folder, add `--local`.
-2. Read `<block>_<parcel>/model/BUILD_REPORT.md`, then look at `model/qa/overlay_*.png` and `model/qa/preview_3d.png`. Schema validity does not show that the model is right.
-3. Report the unresolved and inferred counts, not only the successes.
+2. Read `<block>_<parcel>/model/quality.json` and `BUILD_REPORT.md`, then look at `model/qa/contour_*.png`, `overlay_*.png` and `preview_3d*.png`. Schema validity does not show that the model is right.
+3. Report the verdict and its reasons, and the unresolved, inferred and standing-on-nothing counts, not only the successes.
 4. In Revit, the person opens `<block>_<parcel>/Build_<block>_<parcel>.dyn` and presses Run.
 
-Follow [docs/BUILD_PROTOCOL.md](docs/BUILD_PROTOCOL.md). Change the protocol there when the stages change.
+Follow [docs/BUILD_PROTOCOL.md](docs/BUILD_PROTOCOL.md). Change the protocol there when the stages change. What the product is for, the rules a good model keeps and the roadmap are in [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md).
+
+Skills in `.claude/skills/`: `build-model`, `review-model`, `fix-model`, `next-milestone`.
 
 ## Rules
 - A Revit property beats a measurement, and a measurement beats an inference. Each element records its source.

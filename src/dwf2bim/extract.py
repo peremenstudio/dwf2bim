@@ -50,6 +50,8 @@ class Rules:
         self.rules = [(re.compile(r["match"]), r["class"]) for r in cfg["rules"]]
         self.type_rules = [(re.compile(r["match"]), r["class"]) for r in cfg.get("type_rules", [])]
         self.section_marks = set(cfg.get("section_mark_families", []))
+        self.plan_drawing = cfg.get("plan_drawing", {})
+        self.shafts = re.compile(cfg["shaft_families"]) if cfg.get("shaft_families") else None
 
     def classify(self, family: str, type_name: str | None = None) -> str:
         for rx, cls in self.type_rules:
@@ -360,6 +362,27 @@ class Extractor:
         if pieces is not None and pieces.area < 0.6 * hull.area:
             # slats, beams and posts with air between them, as in a pergola: each is built on its own
             out["pieces"] = _polys_out(pieces, 0.003)
+        return out
+
+    def shaft_hints(self) -> list:
+        """Where a lift or a shaft is drawn in plan: a floor stays open there.
+
+        A shaft runs through every storey, so a hint counts on all of them, also on a storey with no plan of its own.
+        """
+        if self.rules.shafts is None:
+            return []
+        out = []
+        for el in self.elements.values():
+            name = f"{el.family or ''} {el.props.get('Type Name') or ''}"
+            if not self.rules.shafts.search(name) or self.rules.classify(el.family, el.props.get("Type Name")) in ("door", "window"):
+                continue
+            view, prims = self.plan_prims(el.id, _level_of(el))
+            pts = self._points(view, prims) if view is not None else []
+            if len(pts) < 3:
+                continue
+            hull = MultiPoint(pts).convex_hull
+            if hull.geom_type == "Polygon" and hull.area > 0.05:
+                out.append({"id": el.id, "family": english(el.family), "outline": [_round2(q) for q in hull.exterior.coords[:-1]]})
         return out
 
     def unresolved_outlines(self, unresolved):

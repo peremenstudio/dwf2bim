@@ -12,7 +12,7 @@ one main floor and one floor per balcony, each taking the type of the drawn floo
 """
 from __future__ import annotations
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, MultiPoint, Polygon
 from shapely.ops import unary_union
 from shapely.validation import make_valid
 
@@ -22,6 +22,8 @@ from .site import _CFG, _difference
 RULES = _CFG["contours"]
 BALCONY_CODES = set(_CFG["balcony_codes"])
 NO_SLAB_CODES = set(_CFG["no_slab_codes"])
+VOID_CODES = set(RULES["void_codes"])
+LIFT_CODES = set(RULES["lift_codes"])
 
 
 def _shape(rec):
@@ -60,6 +62,112 @@ def main_outline(walls, gap, stub):
         return None
     # a wall standing out of the building, as between two balconies, leaves no tab of floor
     return _square(filled, -stub)
+
+
+def stair_opening(rec):
+    """The opening a stair needs in the floor it arrives at: its flights, and the landings where they turn."""
+    g = rec["geometry"]
+    treads = [make_valid(Polygon(t["polygon"])) for t in g.get("treads") or [] if len(t["polygon"]) >= 3]
+    if not treads:
+        return None
+    parts = [unary_union(treads).convex_hull]
+    flights = g.get("flights") or []
+    for a, b in zip(flights, flights[1:]):
+        (x0, y0), (x1, y1) = a["start"], a["end"]
+        length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        if length < 1e-6:
+            continue
+        ux, uy = (x1 - x0) / length, (y1 - y0) / length
+        depth = max(a["width"], b["width"])
+        corners = []
+        for (px, py), w in ((a["end"], a["width"]), (b["start"], b["width"])):
+            for side in (-0.5, 0.5):
+                qx, qy = px - uy * w * side, py + ux * w * side
+                corners += [(qx, qy), (qx + ux * depth, qy + uy * depth)]
+        parts.append(MultiPoint(corners).convex_hull)
+    return unary_union([p for p in parts if p.geom_type == "Polygon" and not p.is_empty])
+
+
+def _walled(piece, walls, reach=0.06):
+    """How much of a shape's edge runs along a wall."""
+    edge = piece.exterior
+    return edge.intersection(walls.buffer(reach)).length / edge.length if edge.length else 0.0
+
+
+def holes_with_a_reason(holes, walls, stairs, hints, voids):
+    """Keep a floor's hole only where something needs it: a stair, a lift, a shaft or a void.
+
+    A drawn slab that was not rebuilt also leaves a hole, as over a lobby, and that one is floored.
+    Returns (the holes to keep, each with its reason; what was closed).
+    """
+    kept, closed = [], []
+    stair_shape = unary_union(stairs) if stairs else Polygon()
+    for hole in holes:
+        rooms = _polygons(hole if walls.is_empty else _difference(hole, walls.buffer(0.01, join_style=2)), 0.05)
+        parts, reasons = [], set()
+        for room in rooms:
+            on_stair = stair_shape.intersection(room)
+            if any(h.intersection(room).area >= RULES["hole_hint_share"] * h.area for h in hints):
+                parts.append(room)
+                reasons.add("lift or shaft")
+            elif any(v.intersection(room).area >= 0.5 * room.area for v in voids):
+                parts.append(room)
+                reasons.add("void")
+            elif on_stair.area >= RULES["hole_stair_share"] * room.area:
+                parts.append(room)
+                reasons.add("stair")
+            elif on_stair.area >= RULES["hole_stair_min_m2"]:
+                parts.append(on_stair)
+                reasons.add("stair")
+            elif room.area <= RULES["walled_shaft_max_m2"] and not walls.is_empty and _walled(room, walls) >= RULES["walled_shaft_share"]:
+                parts.append(room)
+                reasons.add("shaft closed by walls")
+        where = [round(c, 2) for c in hole.representative_point().coords[0]]
+        if not parts:
+            closed.append({"at": where, "area_m2": round(hole.area, 2), "floored_m2": round(hole.area, 2)})
+            continue
+        # the walls between the parts that stay open belong to the opening too
+        shape = _square(unary_union(parts), 0.3).intersection(hole)
+        if shape.area >= RULES["hole_kept_whole_share"] * hole.area:
+            shape = hole
+        else:
+            closed.append({"at": where, "area_m2": round(hole.area, 2), "floored_m2": round(hole.area - shape.area, 2)})
+        for part in _polygons(shape, RULES["min_hole_m2"]):
+            kept.append((Polygon(part.exterior), ", ".join(sorted(reasons))))
+    return kept, closed
+
+
+def cells_to_open(main, cells, open_already):
+    """The area plan's void and lift cells that the floor does not open for yet, each cut to the floor.
+
+    The area plan says where there is no floor: a lift, and the upper storey of a double-height space. A slab
+    drawn across such a cell, as some sets draw it, must not floor it.
+    """
+    out = []
+    taken = unary_union(open_already) if open_already else Polygon()
+    for cell, reason in cells:
+        if cell.area <= 0 or cell.intersection(taken).area >= RULES["cell_open_already_share"] * cell.area:
+            continue
+        # what is left of the cell beside an opening already there, without the strip the cells sit off the walls by
+        rest = _square(_difference(cell.intersection(main), taken), -RULES["sliver_m"] * 2)
+        for part in _polygons(rest, RULES["min_hole_m2"]):
+            out.append((Polygon(part.exterior), reason))
+        taken = unary_union([taken, cell])
+    return out
+
+
+def lift_cells(building, z):
+    """Lift cells of the storeys whose area plan sits well on its walls, for a storey between the lowest and the
+    highest of them: a lift's shaft runs through every storey between, also one whose own plan is poor or missing."""
+    found, heights = [], []
+    for a in building.get("areas", []):
+        cells = [make_valid(Polygon(c["ring"])) for c in a["cells"] if c["c"] in LIFT_CODES]
+        if cells and a.get("walls_inside_share", 0) >= RULES["trusted_area_fit"]:
+            found += cells
+            heights += [building["levels"][lid]["z"] for lid in a["levels"] if lid in building["levels"]]
+    if not heights or not min(heights) - 0.01 <= z <= max(heights) + 0.01:
+        return []
+    return found
 
 
 def storey_outlines(building, lid):
@@ -115,8 +223,19 @@ def storey_outlines(building, lid):
                 hole = Polygon(ring)
                 if hole.area >= RULES["min_hole_m2"] and hole.within(main.buffer(0.01)) and hole.intersection(covered).area < 0.5 * hole.area:
                     holes.append(hole)
-    if holes:
-        main = _difference(main, unary_union(holes))
+    reach = RULES["stair_reach_m"]
+    crossing = unary_union(_wall_bodies([r for r in building["elements"] if r["class"] == "wall" and r["z0"] <= z + reach and r["z1"] >= z - reach]))
+    stairs = [s for s in (stair_opening(r) for r in building["elements"] if r["class"] == "stair" and r["z0"] - reach <= z <= r["z1"] + reach)
+              if s is not None and not s.is_empty]
+    hints = [make_valid(Polygon(h["outline"])) for h in building.get("shaft_hints", [])]
+    voids = [make_valid(Polygon(c["ring"])) for c in cells if c["c"] in VOID_CODES]
+    shafts, closed = holes_with_a_reason(holes, crossing, stairs, hints, voids)
+    by_plan = [(v, "area plan: void") for v in voids]
+    if source == "walls of the storey":  # a roof closes the lift under it
+        by_plan += [(c, "area plan: lift") for c in lift_cells(building, z)]
+    shafts += cells_to_open(main, by_plan, [s for s, _ in shafts])
+    if shafts:
+        main = _difference(main, unary_union([s for s, _ in shafts]))
     # outside the walls a balcony is what the drawn floors cover; the cells there only told which slab is which
     others = unary_union([v for v in shapes.values() if v is not None]) if shapes else Polygon()
     outside = _difference(others, filled.buffer(0.01, join_style=2))
@@ -126,7 +245,8 @@ def storey_outlines(building, lid):
         balconies = balconies.intersection(make_valid(Polygon(plot)).buffer(RULES["beyond_plot_m"], join_style=2))
     balconies = _square(balconies, -RULES["sliver_m"])
     balconies = [b for b in _polygons(balconies, RULES["min_balcony_m2"]) if b.distance(main) < 0.05]
-    return {"main": main, "balconies": balconies, "holes": len(holes), "source": source, "walls": len(tall)}
+    return {"main": main, "balconies": balconies, "holes": len(shafts), "source": source, "walls": len(tall),
+            "shaft_reasons": [reason for _, reason in shafts], "holes_closed": closed}
 
 
 def _carrier(candidates, shapes, piece, fallback):
@@ -186,7 +306,8 @@ def apply(building) -> dict:
         report["storeys"].append({"level": lid, "main_m2": round(out["main"].area, 1), "balconies": len(out["balconies"]),
                                   "balconies_m2": round(sum(b.area for b in out["balconies"]), 1), "holes": out["holes"],
                                   "from": out["source"], "walls": out["walls"], "floors_joined_into_it": len(inside),
-                                  "shafts": len(carrier["geometry"]["shafts"])})
+                                  "shafts": len(carrier["geometry"]["shafts"]), "shaft_reasons": out["shaft_reasons"],
+                                  "holes_closed": out["holes_closed"]})
         report["floors_replaced"] += sorted(gone)
     building["contours"] = contours
     return report
